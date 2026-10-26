@@ -2,6 +2,26 @@
 
 A small GNOME app for annotating screenshots: paste an image from the clipboard, mark it up with boxes, arrows, text, numbered markers, highlights, pixelation and redactions, then copy or save it.
 
+## Why
+
+I take screenshots with GNOME's built-in tool. In a meeting I needed to add
+a few words and an arrow to one, and ended up opening GIMP. That's far too
+heavy for a ten-second job.
+
+Annotshot does just that job: press Ctrl+V, mark the image up, copy or save.
+It's a small native GTK4/libadwaita app that starts instantly. It doesn't
+take screenshots itself, because GNOME already does that well.
+
+Every annotation stays editable while the image is open. Drag a box's edge,
+move an arrow's tip, fix a typo in a label, recolor anything, delete marker 2
+and watch 3 become 2. Undo covers all of it. Lightweight annotators like
+Swappy burn each stroke into the image. The editors that keep annotations
+editable, such as Ksnip or Flameshot, come with their own capture workflow
+and a bigger interface.
+
+Redact paints a solid box, so hidden text is really gone. Pixelate is offered
+too, marked as cosmetic only.
+
 ## Prerequisites
 
     sudo apt install build-essential pkg-config libgtk-4-dev libadwaita-1-dev
