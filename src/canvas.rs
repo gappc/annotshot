@@ -11,7 +11,7 @@ use crate::editor::{Editor, PressOutcome, Tool};
 use crate::model::ItemId;
 use crate::render::{PangoMeasure, draw_items, draw_selection, draw_shape};
 use crate::text_edit::TextEditor;
-use crate::view::ViewTransform;
+use crate::view::{ViewTransform, inside_image};
 
 /// Hit tolerance in screen pixels.
 const HIT_TOLERANCE: f64 = 6.0;
@@ -131,11 +131,20 @@ pub fn attach(
             let pressed = {
                 let mut st = state.borrow_mut();
                 let st = &mut *st;
-                st.view(area.width() as f64, area.height() as f64).map(|view| {
+                st.view(area.width() as f64, area.height() as f64).and_then(|view| {
                     let p = view.to_image(Point::new(x, y));
+                    // Drawing tools only start on the image: items begun in
+                    // the letterbox would be clipped away yet still exist.
+                    // (A drag may still end outside.) Select keeps working
+                    // there so handles on the edge stay reachable.
+                    let img = st.image.as_ref()?;
+                    let size = Size::new(img.width() as f64, img.height() as f64);
+                    if st.editor.tool != Tool::Select && !inside_image(size, p) {
+                        return None;
+                    }
                     let outcome = st.editor.press(p, HIT_TOLERANCE / view.scale, &st.measure);
                     drag.set(Some(ActiveDrag { start: Point::new(x, y), last: p, view }));
-                    (outcome, view)
+                    Some((outcome, view))
                 })
             };
             match pressed {
