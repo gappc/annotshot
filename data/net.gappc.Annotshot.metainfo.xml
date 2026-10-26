@@ -1,0 +1,65 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>net.gappc.Annotshot</id>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>GPL-3.0-or-later</project_license>
+
+  <name>Annotshot</name>
+  <summary>Annotate screenshots from the clipboard</summary>
+  <developer id="net.gappc">
+    <name>gappc</name>
+  </developer>
+
+  <description>
+    <p>
+      Paste a screenshot with Ctrl+V, mark it up, then copy or save it.
+      Annotshot doesn't take screenshots itself: use GNOME's screenshot tool,
+      which puts the image on the clipboard.
+    </p>
+    <p>
+      Every annotation stays editable while the image is open. Move, resize,
+      recolor, edit text or delete anything, and undo every step.
+    </p>
+    <ul>
+      <li>Boxes, arrows and text labels</li>
+      <li>Numbered markers that renumber themselves</li>
+      <li>Highlighter that keeps text readable</li>
+      <li>Redaction with solid boxes</li>
+      <li>Pixelation (cosmetic only, not for sensitive data)</li>
+      <li>Save as JPEG or PNG, or copy to the clipboard</li>
+    </ul>
+  </description>
+
+  <launchable type="desktop-id">net.gappc.Annotshot.desktop</launchable>
+
+  <screenshots>
+    <screenshot type="default">
+      <image>https://raw.githubusercontent.com/gappc/annotshot/main/docs/screenshot.png</image>
+      <caption>A bug report marked up with markers, an arrow, a label, a highlight and a redaction</caption>
+    </screenshot>
+  </screenshots>
+
+  <url type="homepage">https://github.com/gappc/annotshot</url>
+  <url type="bugtracker">https://github.com/gappc/annotshot/issues</url>
+  <url type="vcs-browser">https://github.com/gappc/annotshot</url>
+
+  <content_rating type="oars-1.1"/>
+
+  <branding>
+    <color type="primary" scheme_preference="light">#99c1f1</color>
+    <color type="primary" scheme_preference="dark">#1a5fb4</color>
+  </branding>
+
+  <supports>
+    <control>pointing</control>
+    <control>keyboard</control>
+  </supports>
+
+  <releases>
+    <release version="0.1.0" date="2026-10-26">
+      <description>
+        <p>First release.</p>
+      </description>
+    </release>
+  </releases>
+</component>

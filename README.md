@@ -24,20 +24,31 @@ and a bigger interface.
 Redact paints a solid box, so hidden text is really gone. Pixelate is offered
 too, marked as cosmetic only.
 
-## Prerequisites
+## Install
+
+### Flatpak (any distribution)
+
+Download `annotshot.flatpak` from the
+[latest release](https://github.com/gappc/annotshot/releases/latest), then:
+
+    flatpak install --user annotshot.flatpak
+
+This also fetches the GNOME runtime from Flathub if it is missing (see
+[Flathub setup](https://flathub.org/setup) if Flatpak isn't set up yet).
+Annotshot then appears in the app launcher.
+
+### From source
+
+Needs GTK ≥ 4.16 and libadwaita ≥ 1.6 (e.g. Ubuntu 25.04 or newer):
 
     sudo apt install build-essential pkg-config libgtk-4-dev libadwaita-1-dev
 
-plus a Rust toolchain via [rustup](https://rustup.rs).
-
-## Install
+plus a Rust toolchain via [rustup](https://rustup.rs). Then:
 
     ./install.sh              # builds and installs to ~/.local
     ./install.sh --uninstall
 
 To install elsewhere, set `PREFIX`, e.g. `PREFIX=/usr/local ./install.sh` (default `~/.local`).
-
-Annotshot then appears in the GNOME app launcher.
 
 ## Shortcuts
 
@@ -80,6 +91,10 @@ Annotshot then appears in the GNOME app launcher.
 GitHub Actions (`.github/workflows/ci.yml`) runs the tests, clippy and the
 headless GUI run on every push, in an Ubuntu 26.04 container; the
 screenshots are attached to each run.
+
+The Flatpak recipe lives in `flatpak/`; `.github/workflows/flatpak.yml` builds
+the bundle on every push and attaches it to the release when a `v*` tag is
+pushed. After changing dependencies, run `python3 flatpak/gen-cargo-sources.py`.
 
 After changes, run `./install.sh` again to update the launcher version. Design
 and implementation plan: `docs/superpowers/`.
