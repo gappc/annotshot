@@ -3,7 +3,7 @@ use kurbo::{Line, ParamCurveNearest, Point, Rect, Vec2};
 
 pub fn bounds(shape: &Shape, m: &dyn TextMeasure) -> Rect {
     match shape {
-        Shape::Rect { rect, .. } | Shape::Redact { rect, .. } | Shape::Highlight { rect, .. } => *rect,
+        Shape::Rect { rect, .. } | Shape::Redact { rect, .. } | Shape::Highlight { rect, .. } | Shape::Pixelate { rect, .. } => *rect,
         Shape::Arrow { start, end, .. } => Rect::from_points(*start, *end),
         Shape::Marker { center, style } => {
             let r = style.width.marker_radius();
@@ -32,7 +32,7 @@ pub fn hit_test(shape: &Shape, p: Point, tol: f64, m: &dyn TextMeasure) -> bool 
             d <= tol + style.width.px() / 2.0
         }
         Shape::Marker { center, style } => center.distance(p) <= style.width.marker_radius() + tol,
-        Shape::Text { .. } | Shape::Redact { .. } | Shape::Highlight { .. } => {
+        Shape::Text { .. } | Shape::Redact { .. } | Shape::Highlight { .. } | Shape::Pixelate { .. } => {
             bounds(shape, m).inflate(tol, tol).contains(p)
         }
     }
@@ -57,7 +57,7 @@ pub enum Handle {
 
 pub fn handles(shape: &Shape) -> Vec<(Handle, Point)> {
     match shape {
-        Shape::Rect { rect, .. } | Shape::Redact { rect, .. } | Shape::Highlight { rect, .. } => vec![
+        Shape::Rect { rect, .. } | Shape::Redact { rect, .. } | Shape::Highlight { rect, .. } | Shape::Pixelate { rect, .. } => vec![
             (Handle::TopLeft, Point::new(rect.x0, rect.y0)),
             (Handle::TopRight, Point::new(rect.x1, rect.y0)),
             (Handle::BottomLeft, Point::new(rect.x0, rect.y1)),
@@ -85,7 +85,7 @@ pub fn grab_at(shape: &Shape, p: Point, handle_size: f64, tol: f64) -> Option<Ha
     }
     let (rect, reach) = match shape {
         Shape::Rect { rect, style } => (rect, tol + style.width.px() / 2.0),
-        Shape::Redact { rect, .. } | Shape::Highlight { rect, .. } => (rect, tol),
+        Shape::Redact { rect, .. } | Shape::Highlight { rect, .. } | Shape::Pixelate { rect, .. } => (rect, tol),
         Shape::Marker { center, style } => {
             return (center.distance(p) <= style.width.marker_radius()).then_some(Handle::Center);
         }
@@ -109,7 +109,7 @@ pub fn grab_at(shape: &Shape, p: Point, handle_size: f64, tol: f64) -> Option<Ha
 
 pub fn translate(shape: &mut Shape, d: Vec2) {
     match shape {
-        Shape::Rect { rect, .. } | Shape::Redact { rect, .. } | Shape::Highlight { rect, .. } => *rect = *rect + d,
+        Shape::Rect { rect, .. } | Shape::Redact { rect, .. } | Shape::Highlight { rect, .. } | Shape::Pixelate { rect, .. } => *rect = *rect + d,
         Shape::Arrow { start, end, .. } => {
             *start += d;
             *end += d;
@@ -121,7 +121,7 @@ pub fn translate(shape: &mut Shape, d: Vec2) {
 
 pub fn drag_handle(shape: &mut Shape, h: Handle, p: Point) {
     match shape {
-        Shape::Rect { rect, .. } | Shape::Redact { rect, .. } | Shape::Highlight { rect, .. } => {
+        Shape::Rect { rect, .. } | Shape::Redact { rect, .. } | Shape::Highlight { rect, .. } | Shape::Pixelate { rect, .. } => {
             let mut r = *rect;
             match h {
                 Handle::TopLeft => (r.x0, r.y0) = (p.x, p.y),
@@ -148,7 +148,7 @@ pub fn drag_handle(shape: &mut Shape, h: Handle, p: Point) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::model::{Color, Style};
+    use crate::model::{Color, Style, Width};
     use kurbo::Size;
 
     struct FixedMeasure(Size);
@@ -199,6 +199,21 @@ mod tests {
         drag_handle(&mut m, Handle::BottomRight, Point::new(80., 70.));
         translate(&mut m, Vec2::new(1., 2.));
         assert_eq!(m, Shape::Highlight { rect: Rect::new(1., 2., 81., 72.), color: Color::Yellow });
+    }
+
+    #[test]
+    fn pixelate_behaves_like_redact() {
+        let px = Shape::Pixelate { rect: Rect::new(0., 0., 50., 50.), width: Width::Medium };
+        assert_eq!(bounds(&px, &M), Rect::new(0., 0., 50., 50.));
+        assert!(hit_test(&px, Point::new(25., 25.), 0., &M));
+        assert_eq!(grab_at(&px, Point::new(49., 25.), 8., 6.), Some(Handle::Right));
+        let mut m = px.clone();
+        drag_handle(&mut m, Handle::TopLeft, Point::new(10., 5.));
+        translate(&mut m, Vec2::new(1., 1.));
+        assert_eq!(m, Shape::Pixelate { rect: Rect::new(11., 6., 51., 51.), width: Width::Medium });
+        assert!(px.is_underlay());
+        assert!(Shape::Highlight { rect: Rect::ZERO, color: Color::Yellow }.is_underlay());
+        assert!(!text_shape().is_underlay());
     }
 
     #[test]

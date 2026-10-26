@@ -13,6 +13,7 @@ pub enum Tool {
     Redact,
     Marker,
     Highlight,
+    Pixelate,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -145,6 +146,7 @@ impl Editor {
             Shape::Text { color, .. } | Shape::Redact { color, .. } | Shape::Highlight { color, .. } => {
                 self.style.color = *color
             }
+            Shape::Pixelate { width, .. } => self.style.width = *width,
         }
     }
 
@@ -171,12 +173,12 @@ impl Editor {
         {
             return Some(it.id);
         }
-        // Highlights are drawn under everything else, so they come last.
-        let hit = |highlights: bool| {
+        // Highlights and pixelations are drawn under everything else, so they come last.
+        let hit = |underlay: bool| {
             self.items
                 .iter()
                 .rev()
-                .filter(|i| matches!(i.shape, Shape::Highlight { .. }) == highlights)
+                .filter(|i| i.shape.is_underlay() == underlay)
                 .find(|i| hit_test(&i.shape, p, tol, m))
                 .map(|i| i.id)
         };
@@ -212,12 +214,13 @@ impl Editor {
                     self.drag = Drag::Move { id, last: p, before: self.items.clone() };
                 }
             }
-            Tool::Rect | Tool::Arrow | Tool::Redact | Tool::Marker | Tool::Highlight => {
+            Tool::Rect | Tool::Arrow | Tool::Redact | Tool::Marker | Tool::Highlight | Tool::Pixelate => {
                 let shape = match self.tool {
                     Tool::Rect => Shape::Rect { rect: Rect::from_points(p, p), style: self.style },
                     Tool::Arrow => Shape::Arrow { start: p, end: p, style: self.style },
                     Tool::Marker => Shape::Marker { center: p, style: self.style },
                     Tool::Highlight => Shape::Highlight { rect: Rect::from_points(p, p), color: self.style.color },
+                    Tool::Pixelate => Shape::Pixelate { rect: Rect::from_points(p, p), width: self.style.width },
                     _ => Shape::Redact { rect: Rect::from_points(p, p), color: self.style.color },
                 };
                 self.drag = Drag::Draw { start: p, shape };
@@ -241,7 +244,7 @@ impl Editor {
         match &mut self.drag {
             Drag::None => {}
             Drag::Draw { start, shape } => match shape {
-                Shape::Rect { rect, .. } | Shape::Redact { rect, .. } | Shape::Highlight { rect, .. } => {
+                Shape::Rect { rect, .. } | Shape::Redact { rect, .. } | Shape::Highlight { rect, .. } | Shape::Pixelate { rect, .. } => {
                     *rect = Rect::from_points(*start, p)
                 }
                 Shape::Arrow { end, .. } => *end = p,
@@ -271,7 +274,7 @@ impl Editor {
             Drag::None => {}
             Drag::Draw { shape, .. } => {
                 let big_enough = match &shape {
-                    Shape::Rect { rect, .. } | Shape::Redact { rect, .. } | Shape::Highlight { rect, .. } => {
+                    Shape::Rect { rect, .. } | Shape::Redact { rect, .. } | Shape::Highlight { rect, .. } | Shape::Pixelate { rect, .. } => {
                         rect.width() >= MIN_SIZE || rect.height() >= MIN_SIZE
                     }
                     Shape::Arrow { start, end, .. } => start.distance(*end) >= MIN_SIZE,
@@ -357,6 +360,7 @@ impl Editor {
                 style.color = c
             }
             Shape::Text { color, .. } | Shape::Redact { color, .. } | Shape::Highlight { color, .. } => *color = c,
+            Shape::Pixelate { .. } => {}
         });
     }
 
@@ -366,6 +370,7 @@ impl Editor {
             Shape::Rect { style, .. } | Shape::Arrow { style, .. } | Shape::Marker { style, .. } => {
                 style.width = w
             }
+            Shape::Pixelate { width, .. } => *width = w,
             Shape::Text { .. } | Shape::Redact { .. } | Shape::Highlight { .. } => {}
         });
     }
@@ -983,5 +988,36 @@ mod tests {
         e.press(pt(100., 65.), 6., &M); // highlight only
         e.release(pt(100., 65.));
         assert_eq!(e.selected, Some(e.items[1].id));
+    }
+
+    #[test]
+    fn pixelate_tool_uses_width_and_keeps_color() {
+        let mut e = Editor::new();
+        e.set_width(Width::Thick);
+        e.set_tool(Tool::Pixelate);
+        assert_eq!(e.style.color, Color::Red); // no color swap, unlike Highlight
+        draw(&mut e, pt(10., 10.), pt(110., 60.));
+        assert_eq!(e.items[0].shape, Shape::Pixelate { rect: Rect::new(10., 10., 110., 60.), width: Width::Thick });
+        e.set_color(Color::Blue); // no effect on a pixelation, no undo step
+        e.set_width(Width::Thin);
+        assert_eq!(e.items[0].shape, Shape::Pixelate { rect: Rect::new(10., 10., 110., 60.), width: Width::Thin });
+        assert!(e.undo());
+        assert!(matches!(e.items[0].shape, Shape::Pixelate { width: Width::Thick, .. }));
+        assert!(e.undo());
+        assert!(e.items.is_empty());
+    }
+
+    #[test]
+    fn select_prefers_items_over_pixelations() {
+        let mut e = Editor::new();
+        e.set_tool(Tool::Arrow);
+        draw(&mut e, pt(0., 50.), pt(200., 50.));
+        e.set_tool(Tool::Pixelate);
+        draw(&mut e, pt(50., 30.), pt(150., 70.));
+        e.set_tool(Tool::Select);
+        e.selected = None;
+        e.press(pt(100., 50.), 6., &M);
+        e.release(pt(100., 50.));
+        assert_eq!(e.selected, Some(e.items[0].id));
     }
 }

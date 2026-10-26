@@ -127,6 +127,7 @@ pub fn draw_shape(cr: &cairo::Context, shape: &Shape, number: u32, m: &PangoMeas
             cr.move_to(origin.x + TEXT_PADDING, origin.y + TEXT_PADDING);
             pangocairo::functions::show_layout(cr, &make_layout(cr, text));
         }
+        Shape::Pixelate { .. } => {} // drawn in the next task
         Shape::Highlight { rect, color } => {
             let (r, g, b) = highlight_rgb(*color);
             cr.set_source_rgb(r, g, b);

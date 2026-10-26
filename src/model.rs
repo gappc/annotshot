@@ -43,6 +43,15 @@ impl Width {
         }
     }
 
+    /// Block size of a pixelation in image pixels.
+    pub fn pixel_block(self) -> usize {
+        match self {
+            Width::Thin => 6,
+            Width::Medium => 10,
+            Width::Thick => 16,
+        }
+    }
+
     /// Radius of a numbered marker drawn at this width.
     pub fn marker_radius(self) -> f64 {
         match self {
@@ -70,9 +79,20 @@ pub enum Shape {
     Redact { rect: Rect, color: Color },
     /// Highlighter-like tint, drawn under all other annotations.
     Highlight { rect: Rect, color: Color },
+    /// Coarse blocks of the screenshot; `width` sets the block size. Visual
+    /// only: not safe for sensitive data (that is what Redact is for).
+    Pixelate { rect: Rect, width: Width },
     /// Numbered circle. Its number is not stored: it is the marker's position
     /// among the markers in the item list (see `render::draw_items`).
     Marker { center: Point, style: Style },
+}
+
+impl Shape {
+    /// Highlights and pixelations change the screenshot itself, so they are
+    /// drawn under all other annotations.
+    pub fn is_underlay(&self) -> bool {
+        matches!(self, Shape::Highlight { .. } | Shape::Pixelate { .. })
+    }
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -116,6 +136,10 @@ mod tests {
         assert_eq!(
             [Width::Thin.marker_radius(), Width::Medium.marker_radius(), Width::Thick.marker_radius()],
             [12.0, 16.0, 22.0]
+        );
+        assert_eq!(
+            [Width::Thin.pixel_block(), Width::Medium.pixel_block(), Width::Thick.pixel_block()],
+            [6, 10, 16]
         );
     }
 }
