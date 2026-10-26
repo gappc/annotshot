@@ -1,9 +1,8 @@
 mod app;
 mod canvas;
-#[allow(dead_code)] // consumed by later tasks
 mod editor;
-#[allow(dead_code)] // consumed by later tasks
 mod export;
+mod files;
 mod geometry;
 mod history;
 #[allow(dead_code)] // consumed by later tasks
