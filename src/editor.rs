@@ -12,6 +12,7 @@ pub enum Tool {
     Text,
     Redact,
     Marker,
+    Highlight,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -47,6 +48,10 @@ pub struct Editor {
     dirty: bool,
     drag: Drag,
     next_id: ItemId,
+    /// Current color of the Highlight tool while another tool is active.
+    highlight_color: Color,
+    /// Current color of the other tools while Highlight is active.
+    other_color: Color,
 }
 
 impl Default for Editor {
@@ -66,6 +71,8 @@ impl Editor {
             dirty: false,
             drag: Drag::None,
             next_id: 1,
+            highlight_color: Color::Yellow,
+            other_color: Color::default(),
         }
     }
 
@@ -75,6 +82,32 @@ impl Editor {
         self.history.clear();
         self.dirty = false;
         self.drag = Drag::None;
+    }
+
+    /// Switch tools. Highlight keeps its own current color (yellow at first),
+    /// so entering or leaving it swaps colors; a selection of the other kind
+    /// is dropped so the toolbar color always belongs to what it would change.
+    pub fn set_tool(&mut self, tool: Tool) {
+        let was = self.tool == Tool::Highlight;
+        let is = tool == Tool::Highlight;
+        self.tool = tool;
+        if was == is {
+            return;
+        }
+        if is {
+            self.other_color = self.style.color;
+            self.style.color = self.highlight_color;
+        } else {
+            self.highlight_color = self.style.color;
+            self.style.color = self.other_color;
+        }
+        let selected_highlight = self
+            .selected
+            .and_then(|id| self.items.iter().find(|i| i.id == id))
+            .is_some_and(|i| matches!(i.shape, Shape::Highlight { .. }));
+        if selected_highlight != is {
+            self.selected = None;
+        }
     }
 
     fn alloc_id(&mut self) -> ItemId {
@@ -109,7 +142,9 @@ impl Editor {
             Shape::Rect { style, .. } | Shape::Arrow { style, .. } | Shape::Marker { style, .. } => {
                 self.style = *style
             }
-            Shape::Text { color, .. } | Shape::Redact { color, .. } => self.style.color = *color,
+            Shape::Text { color, .. } | Shape::Redact { color, .. } | Shape::Highlight { color, .. } => {
+                self.style.color = *color
+            }
         }
     }
 
@@ -136,7 +171,16 @@ impl Editor {
         {
             return Some(it.id);
         }
-        self.items.iter().rev().find(|i| hit_test(&i.shape, p, tol, m)).map(|i| i.id)
+        // Highlights are drawn under everything else, so they come last.
+        let hit = |highlights: bool| {
+            self.items
+                .iter()
+                .rev()
+                .filter(|i| matches!(i.shape, Shape::Highlight { .. }) == highlights)
+                .find(|i| hit_test(&i.shape, p, tol, m))
+                .map(|i| i.id)
+        };
+        hit(false).or_else(|| hit(true))
     }
 
     pub fn hover(&self, p: Point, tol: f64, m: &dyn TextMeasure) -> Hover {
@@ -168,11 +212,12 @@ impl Editor {
                     self.drag = Drag::Move { id, last: p, before: self.items.clone() };
                 }
             }
-            Tool::Rect | Tool::Arrow | Tool::Redact | Tool::Marker => {
+            Tool::Rect | Tool::Arrow | Tool::Redact | Tool::Marker | Tool::Highlight => {
                 let shape = match self.tool {
                     Tool::Rect => Shape::Rect { rect: Rect::from_points(p, p), style: self.style },
                     Tool::Arrow => Shape::Arrow { start: p, end: p, style: self.style },
                     Tool::Marker => Shape::Marker { center: p, style: self.style },
+                    Tool::Highlight => Shape::Highlight { rect: Rect::from_points(p, p), color: self.style.color },
                     _ => Shape::Redact { rect: Rect::from_points(p, p), color: self.style.color },
                 };
                 self.drag = Drag::Draw { start: p, shape };
@@ -196,7 +241,9 @@ impl Editor {
         match &mut self.drag {
             Drag::None => {}
             Drag::Draw { start, shape } => match shape {
-                Shape::Rect { rect, .. } | Shape::Redact { rect, .. } => *rect = Rect::from_points(*start, p),
+                Shape::Rect { rect, .. } | Shape::Redact { rect, .. } | Shape::Highlight { rect, .. } => {
+                    *rect = Rect::from_points(*start, p)
+                }
                 Shape::Arrow { end, .. } => *end = p,
                 Shape::Marker { center, .. } => *center = p,
                 Shape::Text { .. } => {}
@@ -224,7 +271,7 @@ impl Editor {
             Drag::None => {}
             Drag::Draw { shape, .. } => {
                 let big_enough = match &shape {
-                    Shape::Rect { rect, .. } | Shape::Redact { rect, .. } => {
+                    Shape::Rect { rect, .. } | Shape::Redact { rect, .. } | Shape::Highlight { rect, .. } => {
                         rect.width() >= MIN_SIZE || rect.height() >= MIN_SIZE
                     }
                     Shape::Arrow { start, end, .. } => start.distance(*end) >= MIN_SIZE,
@@ -309,7 +356,7 @@ impl Editor {
             Shape::Rect { style, .. } | Shape::Arrow { style, .. } | Shape::Marker { style, .. } => {
                 style.color = c
             }
-            Shape::Text { color, .. } | Shape::Redact { color, .. } => *color = c,
+            Shape::Text { color, .. } | Shape::Redact { color, .. } | Shape::Highlight { color, .. } => *color = c,
         });
     }
 
@@ -319,7 +366,7 @@ impl Editor {
             Shape::Rect { style, .. } | Shape::Arrow { style, .. } | Shape::Marker { style, .. } => {
                 style.width = w
             }
-            Shape::Text { .. } | Shape::Redact { .. } => {}
+            Shape::Text { .. } | Shape::Redact { .. } | Shape::Highlight { .. } => {}
         });
     }
 
@@ -873,5 +920,68 @@ mod tests {
         e.press(pt(100., 100.), 6., &M);
         e.release(pt(100., 100.));
         assert_eq!(e.style.width, Width::Thick); // adopted from the marker
+    }
+
+    fn highlight_color(e: &Editor, i: usize) -> Color {
+        match e.items[i].shape {
+            Shape::Highlight { color, .. } => color,
+            ref s => panic!("not a highlight: {s:?}"),
+        }
+    }
+
+    #[test]
+    fn highlight_tool_draws_yellow_and_restores_color() {
+        let mut e = Editor::new();
+        e.set_tool(Tool::Rect);
+        e.set_color(Color::Blue);
+        e.set_tool(Tool::Highlight);
+        assert_eq!(e.style.color, Color::Yellow);
+        draw(&mut e, pt(10., 10.), pt(110., 40.));
+        assert_eq!(highlight_color(&e, 0), Color::Yellow);
+        e.set_color(Color::Green); // recolors the selected highlight
+        assert_eq!(highlight_color(&e, 0), Color::Green);
+        e.set_tool(Tool::Rect);
+        assert_eq!(e.style.color, Color::Blue);
+        e.set_tool(Tool::Highlight);
+        assert_eq!(e.style.color, Color::Green); // remembered
+        assert!(e.undo());
+        assert_eq!(highlight_color(&e, 0), Color::Yellow);
+    }
+
+    #[test]
+    fn set_tool_clears_mismatched_selection() {
+        let mut e = Editor::new();
+        draw(&mut e, pt(10., 10.), pt(110., 60.)); // red box, selected
+        e.set_tool(Tool::Highlight);
+        assert_eq!(e.selected, None);
+        assert_eq!(e.style.color, Color::Yellow);
+        draw(&mut e, pt(200., 200.), pt(250., 250.));
+        assert!(e.selected.is_some());
+        e.set_tool(Tool::Select);
+        assert_eq!(e.selected, None);
+        assert_eq!(e.style.color, Color::Red);
+        // Switching between other tools keeps the selection.
+        e.press(pt(10., 30.), 6., &M);
+        e.release(pt(10., 30.));
+        let sel = e.selected;
+        assert!(sel.is_some());
+        e.set_tool(Tool::Arrow);
+        assert_eq!(e.selected, sel);
+    }
+
+    #[test]
+    fn select_prefers_items_over_highlights() {
+        let mut e = Editor::new();
+        e.set_tool(Tool::Arrow);
+        draw(&mut e, pt(0., 50.), pt(200., 50.));
+        e.set_tool(Tool::Highlight);
+        draw(&mut e, pt(50., 30.), pt(150., 70.)); // drawn later, yet shown underneath
+        e.set_tool(Tool::Select);
+        e.press(pt(100., 50.), 6., &M);
+        e.release(pt(100., 50.));
+        assert_eq!(e.selected, Some(e.items[0].id));
+        e.press(pt(100., 65.), 6., &M); // highlight only
+        e.release(pt(100., 65.));
+        assert_eq!(e.selected, Some(e.items[1].id));
     }
 }

@@ -117,6 +117,7 @@ pub fn draw_shape(cr: &cairo::Context, shape: &Shape, number: u32, m: &PangoMeas
             cr.move_to(origin.x + TEXT_PADDING, origin.y + TEXT_PADDING);
             pangocairo::functions::show_layout(cr, &make_layout(cr, text));
         }
+        Shape::Highlight { .. } => {} // drawn in the next task
         Shape::Marker { center, style } => {
             let r = style.width.marker_radius();
             set_color(cr, style.color);

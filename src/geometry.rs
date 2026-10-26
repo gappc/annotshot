@@ -3,7 +3,7 @@ use kurbo::{Line, ParamCurveNearest, Point, Rect, Vec2};
 
 pub fn bounds(shape: &Shape, m: &dyn TextMeasure) -> Rect {
     match shape {
-        Shape::Rect { rect, .. } | Shape::Redact { rect, .. } => *rect,
+        Shape::Rect { rect, .. } | Shape::Redact { rect, .. } | Shape::Highlight { rect, .. } => *rect,
         Shape::Arrow { start, end, .. } => Rect::from_points(*start, *end),
         Shape::Marker { center, style } => {
             let r = style.width.marker_radius();
@@ -32,7 +32,9 @@ pub fn hit_test(shape: &Shape, p: Point, tol: f64, m: &dyn TextMeasure) -> bool 
             d <= tol + style.width.px() / 2.0
         }
         Shape::Marker { center, style } => center.distance(p) <= style.width.marker_radius() + tol,
-        Shape::Text { .. } | Shape::Redact { .. } => bounds(shape, m).inflate(tol, tol).contains(p),
+        Shape::Text { .. } | Shape::Redact { .. } | Shape::Highlight { .. } => {
+            bounds(shape, m).inflate(tol, tol).contains(p)
+        }
     }
 }
 
@@ -55,7 +57,7 @@ pub enum Handle {
 
 pub fn handles(shape: &Shape) -> Vec<(Handle, Point)> {
     match shape {
-        Shape::Rect { rect, .. } | Shape::Redact { rect, .. } => vec![
+        Shape::Rect { rect, .. } | Shape::Redact { rect, .. } | Shape::Highlight { rect, .. } => vec![
             (Handle::TopLeft, Point::new(rect.x0, rect.y0)),
             (Handle::TopRight, Point::new(rect.x1, rect.y0)),
             (Handle::BottomLeft, Point::new(rect.x0, rect.y1)),
@@ -83,7 +85,7 @@ pub fn grab_at(shape: &Shape, p: Point, handle_size: f64, tol: f64) -> Option<Ha
     }
     let (rect, reach) = match shape {
         Shape::Rect { rect, style } => (rect, tol + style.width.px() / 2.0),
-        Shape::Redact { rect, .. } => (rect, tol),
+        Shape::Redact { rect, .. } | Shape::Highlight { rect, .. } => (rect, tol),
         Shape::Marker { center, style } => {
             return (center.distance(p) <= style.width.marker_radius()).then_some(Handle::Center);
         }
@@ -107,7 +109,7 @@ pub fn grab_at(shape: &Shape, p: Point, handle_size: f64, tol: f64) -> Option<Ha
 
 pub fn translate(shape: &mut Shape, d: Vec2) {
     match shape {
-        Shape::Rect { rect, .. } | Shape::Redact { rect, .. } => *rect = *rect + d,
+        Shape::Rect { rect, .. } | Shape::Redact { rect, .. } | Shape::Highlight { rect, .. } => *rect = *rect + d,
         Shape::Arrow { start, end, .. } => {
             *start += d;
             *end += d;
@@ -119,7 +121,7 @@ pub fn translate(shape: &mut Shape, d: Vec2) {
 
 pub fn drag_handle(shape: &mut Shape, h: Handle, p: Point) {
     match shape {
-        Shape::Rect { rect, .. } | Shape::Redact { rect, .. } => {
+        Shape::Rect { rect, .. } | Shape::Redact { rect, .. } | Shape::Highlight { rect, .. } => {
             let mut r = *rect;
             match h {
                 Handle::TopLeft => (r.x0, r.y0) = (p.x, p.y),
@@ -184,6 +186,19 @@ mod tests {
         assert_eq!(m, marker());
         translate(&mut m, Vec2::new(3., 4.));
         assert!(matches!(m, Shape::Marker { center, .. } if center == Point::new(53., 54.)));
+    }
+
+    #[test]
+    fn highlight_behaves_like_redact() {
+        let h = Shape::Highlight { rect: Rect::new(0., 0., 50., 50.), color: Color::Yellow };
+        assert_eq!(bounds(&h, &M), Rect::new(0., 0., 50., 50.));
+        assert!(hit_test(&h, Point::new(25., 25.), 0., &M));
+        assert_eq!(grab_at(&h, Point::new(25., 49.), 8., 6.), Some(Handle::Bottom));
+        assert_eq!(handles(&h).len(), 4);
+        let mut m = h.clone();
+        drag_handle(&mut m, Handle::BottomRight, Point::new(80., 70.));
+        translate(&mut m, Vec2::new(1., 2.));
+        assert_eq!(m, Shape::Highlight { rect: Rect::new(1., 2., 81., 72.), color: Color::Yellow });
     }
 
     #[test]

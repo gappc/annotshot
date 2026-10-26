@@ -759,7 +759,7 @@ impl SimpleComponent for AppModel {
             AppMsg::Pasted(None) => self.toast("Clipboard does not contain an image"),
             AppMsg::SetTool(tool) => {
                 self.commit_text_if_open();
-                self.state.borrow_mut().editor.tool = tool;
+                self.state.borrow_mut().editor.set_tool(tool);
             }
             AppMsg::SetColor(color) => {
                 // An edited existing label is selected, so this recolors it;

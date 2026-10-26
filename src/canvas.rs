@@ -118,7 +118,7 @@ pub fn cursor_for(hover: Hover, tool: Tool, drawable: bool) -> &'static str {
             _ if !drawable => "default",
             Tool::Select => "default",
             Tool::Text => "text",
-            Tool::Rect | Tool::Arrow | Tool::Redact | Tool::Marker => "crosshair",
+            Tool::Rect | Tool::Arrow | Tool::Redact | Tool::Marker | Tool::Highlight => "crosshair",
         },
     }
 }

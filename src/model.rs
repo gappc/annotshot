@@ -68,6 +68,8 @@ pub enum Shape {
     Arrow { start: Point, end: Point, style: Style },
     Text { origin: Point, text: String, color: Color },
     Redact { rect: Rect, color: Color },
+    /// Highlighter-like tint, drawn under all other annotations.
+    Highlight { rect: Rect, color: Color },
     /// Numbered circle. Its number is not stored: it is the marker's position
     /// among the markers in the item list (see `render::draw_items`).
     Marker { center: Point, style: Style },
