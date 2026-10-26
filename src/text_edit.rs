@@ -2,6 +2,7 @@
 //! like the label it will become, committed into the editor on close.
 
 use std::cell::Cell;
+use std::rc::Rc;
 
 use gtk::prelude::*;
 use gtk::{gdk, glib};
@@ -9,7 +10,7 @@ use kurbo::Point;
 
 use crate::canvas::SharedCanvas;
 use crate::editor::Editor;
-use crate::model::{Color, ItemId, TEXT_BORDER, TEXT_FONT_PX, TEXT_PADDING};
+use crate::model::{Color, ItemId, TextMeasure, TEXT_BORDER, TEXT_FONT_PX, TEXT_PADDING};
 use crate::view::ViewTransform;
 
 const CSS_CLASS: &str = "annotshot-text-editor";
@@ -58,6 +59,16 @@ pub fn placement(origin_widget: Point, scale: f64) -> Placement {
     }
 }
 
+/// Widget size of the editor box for laid-out text of `text` image px at view
+/// `scale`: the same box the committed label gets (text + padding). GtkTextView
+/// doesn't request a width for its content outside a scrolled window, so the
+/// editor is sized explicitly. Empty text keeps room for the caret.
+pub fn editor_size(text: kurbo::Size, scale: f64) -> (i32, i32) {
+    let w = text.width.max(TEXT_FONT_PX / 2.0) + 2.0 * TEXT_PADDING;
+    let h = text.height + 2.0 * TEXT_PADDING;
+    ((w * scale).ceil() as i32, (h * scale).ceil() as i32)
+}
+
 fn hex(color: Color) -> String {
     let (r, g, b) = color.rgb();
     let c = |v: f64| (v * 255.0).round() as u8;
@@ -70,7 +81,7 @@ pub fn editor_css(scale: f64, color: Color) -> String {
     let p = placement(Point::ZERO, scale);
     let c = hex(color);
     format!(
-        "textview.{CSS_CLASS} {{ border: {b:.3}px solid {c}; padding: 0; margin: 0; \
+        "textview.{CSS_CLASS} {{ border: {b:.3}px solid {c}; color: {c}; padding: 0; margin: 0; \
          background-color: #ffffff; border-radius: 0; box-shadow: none; outline: none; \
          font-family: Sans; font-weight: bold; font-size: {f:.3}px; }}\n\
          textview.{CSS_CLASS} text {{ background-color: #ffffff; color: {c}; caret-color: {c}; }}\n",
@@ -84,7 +95,7 @@ pub struct TextEditor {
     css: gtk::CssProvider,
     state: SharedCanvas,
     target: Cell<Option<Target>>,
-    scale: Cell<f64>,
+    scale: Rc<Cell<f64>>,
 }
 
 impl TextEditor {
@@ -119,12 +130,26 @@ impl TextEditor {
             }
         });
         view.add_controller(keys);
+        let scale = Rc::new(Cell::new(1.0));
+        // Grow/shrink the box with its text, measured like the committed label.
+        {
+            let state = state.clone();
+            let scale = scale.clone();
+            let view_weak = view.downgrade();
+            view.buffer().connect_changed(move |buffer| {
+                let Some(view) = view_weak.upgrade() else { return };
+                let text = buffer.text(&buffer.start_iter(), &buffer.end_iter(), false);
+                let size = state.borrow().measure.text_size(&text);
+                let (w, h) = editor_size(size, scale.get());
+                view.set_size_request(w, h);
+            });
+        }
         Self {
             view,
             css,
             state,
             target: Cell::new(None),
-            scale: Cell::new(1.0),
+            scale,
         }
     }
 
@@ -253,6 +278,16 @@ mod tests {
     }
 
     #[test]
+    fn editor_size_matches_label_box() {
+        // Text 50×19 image px → label box (50+12)×(19+12), at scale 1 and 0.5.
+        assert_eq!(editor_size(kurbo::Size::new(50., 19.), 1.0), (62, 31));
+        assert_eq!(editor_size(kurbo::Size::new(50., 19.), 0.5), (31, 16));
+        // Empty text still leaves room for the caret.
+        let (w, _) = editor_size(kurbo::Size::new(0., 19.), 1.0);
+        assert!(w as f64 >= 2.0 * TEXT_PADDING + TEXT_FONT_PX / 2.0);
+    }
+
+    #[test]
     fn placement_never_negative() {
         let p = placement(Point::new(-3., -0.2), 1.0);
         assert_eq!((p.margin_start, p.margin_top), (0, 0));
@@ -266,6 +301,10 @@ mod tests {
         assert!(css.contains("border: 4.000px solid #3584e4"));
         assert!(css.contains("font-weight: bold"));
         assert!(editor_css(1.0, Color::Black).contains("color: #000000"));
+        // libadwaita ignores `color` on the inner `text` node; it must be on the
+        // textview node itself (first rule).
+        let first_rule = css.lines().next().unwrap();
+        assert!(first_rule.contains("; color: #3584e4;"), "{first_rule}");
     }
 
     #[test]
