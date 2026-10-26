@@ -51,5 +51,9 @@ Annotshot then appears in the GNOME app launcher.
     cargo clippy --all-targets -- -D warnings
     tests/gui/smoke.sh        # headless GUI run with screenshots, see tests/gui/README.md
 
+GitHub Actions (`.github/workflows/ci.yml`) runs the tests, clippy and the
+headless GUI run on every push, in an Ubuntu 26.04 container; the
+screenshots are attached to each run.
+
 After changes, run `./install.sh` again to update the launcher version. Design
 and implementation plan: `docs/superpowers/`.

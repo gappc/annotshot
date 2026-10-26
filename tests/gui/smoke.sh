@@ -48,4 +48,6 @@ g shot 07-marker-deleted 230,180,760,450
 g key ctrl+z                         # back to 1, 2, 3
 g shot 08-marker-undone 230,180,760,450
 
+# Fail if the app crashed along the way (screenshots alone wouldn't show it).
+kill -0 "$(cat "$HERE/out/app.pid")" || { echo "annotshot is no longer running" >&2; exit 1; }
 echo "screenshots in $HERE/out/"

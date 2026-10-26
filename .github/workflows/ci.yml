@@ -1,0 +1,50 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    # The gtk4/libadwaita crate features need GTK >= 4.16 and libadwaita >= 1.6,
+    # newer than ubuntu-latest ships; build on the release the app targets.
+    container: ubuntu:26.04
+    steps:
+      - name: Install system packages
+        env:
+          DEBIAN_FRONTEND: noninteractive
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends \
+            build-essential pkg-config ca-certificates curl git \
+            libgtk-4-dev libadwaita-1-dev \
+            xvfb xdotool xclip x11-apps dbus-daemon python3-gi gir1.2-gdkpixbuf-2.0 \
+            fonts-dejavu-core
+
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Unit tests
+        run: cargo test
+
+      - name: Clippy
+        run: cargo clippy --all-targets -- -D warnings
+
+      - name: Headless GUI run
+        run: |
+          cargo build
+          timeout 300 tests/gui/smoke.sh
+
+      - name: Upload screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gui-screenshots
+          path: tests/gui/out/*.png
+          if-no-files-found: ignore
