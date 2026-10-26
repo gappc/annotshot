@@ -2,6 +2,8 @@
 
 use std::path::Path;
 
+use crate::export;
+
 use adw::prelude::*;
 use gtk::{gio, glib};
 
@@ -97,6 +99,26 @@ pub fn unsaved_dialog(closing: bool, dirty: bool) -> adw::AlertDialog {
     dialog
 }
 
+/// The chosen name has no image extension, so `.jpg` is added, and a file
+/// with that adjusted name already exists. The file chooser only confirmed
+/// overwriting the name it was given, so this needs its own question.
+pub fn would_replace_other_file(chosen: &Path) -> bool {
+    let (target, _) = export::format_for_path(chosen);
+    target != chosen && target.exists()
+}
+
+/// Question before overwriting `name` (the auto-extended file name).
+pub fn replace_dialog(name: &str) -> adw::AlertDialog {
+    let heading = format!("Replace \u{201c}{name}\u{201d}?");
+    let dialog =
+        adw::AlertDialog::new(Some(&heading), Some("A file with this name already exists."));
+    dialog.add_responses(&[("cancel", "Cancel"), ("replace", "Replace")]);
+    dialog.set_response_appearance("replace", adw::ResponseAppearance::Destructive);
+    dialog.set_default_response(Some("cancel"));
+    dialog.set_close_response("cancel");
+    dialog
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -115,6 +137,23 @@ mod tests {
     fn default_name_is_timestamped_jpeg() {
         let t = glib::DateTime::new(&glib::TimeZone::utc(), 2026, 3, 4, 5, 6, 7.0).unwrap();
         assert_eq!(default_file_name(&t), "screenshot-2026-03-04-050607.jpg");
+    }
+
+    #[test]
+    fn replace_question_only_for_existing_auto_extended_file() {
+        let dir = std::env::temp_dir().join(format!("annotshot-replace-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let bare = dir.join("shot");
+        // Nothing at shot.jpg yet.
+        assert!(!would_replace_other_file(&bare));
+        std::fs::write(dir.join("shot.jpg"), b"x").unwrap();
+        assert!(would_replace_other_file(&bare));
+        // Names with an image extension are written as chosen; the file
+        // chooser already asked about those.
+        std::fs::write(dir.join("kept.png"), b"x").unwrap();
+        assert!(!would_replace_other_file(&dir.join("kept.png")));
+        assert!(!would_replace_other_file(&dir.join("shot.jpg")));
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]

@@ -118,8 +118,7 @@ pub enum AppMsg {
     Undo,
     Redo,
     DeleteSelected,
-    /// Commit the in-place text editor, if open (Escape, canvas resize; Task 8
-    /// sends it before copy/save/close or calls `commit_text_if_open`).
+    /// Commit the in-place text editor, if open (Escape, canvas resize).
     TextCommit,
     /// The canvas state changed outside `update` (pointer gestures).
     Redraw,
@@ -128,6 +127,8 @@ pub enum AppMsg {
     SaveAs,
     /// Result of the save dialog; `None` when cancelled.
     SaveChosen(Option<PathBuf>),
+    /// Answer to the replace question for an auto-extended path; `None` when cancelled.
+    ReplaceConfirmed(Option<PathBuf>),
     /// The window's close button / Alt+F4 (from `close-request`).
     CloseRequested,
     /// Answer to the unsaved-changes dialog about `pending`.
@@ -216,6 +217,20 @@ impl AppModel {
         relm4::spawn_local(async move {
             let path = dialog.save_future(Some(&window)).await.ok().and_then(|f| f.path());
             sender.input(AppMsg::SaveChosen(path));
+        });
+    }
+
+    /// The chosen name got `.jpg` added and that file exists: ask before
+    /// overwriting it; the answer arrives as `ReplaceConfirmed`.
+    fn confirm_replace(&mut self, chosen: PathBuf, sender: &ComponentSender<Self>) {
+        let (target, _) = export::format_for_path(&chosen);
+        let name = target.file_name().unwrap_or_default().to_string_lossy().into_owned();
+        self.busy = true;
+        let dialog = files::replace_dialog(&name);
+        let (window, sender) = (self.window.clone(), sender.clone());
+        relm4::spawn_local(async move {
+            let response = dialog.choose_future(Some(&window)).await;
+            sender.input(AppMsg::ReplaceConfirmed((response == "replace").then_some(chosen)));
         });
     }
 
@@ -321,9 +336,18 @@ impl AppModel {
     }
 }
 
-/// Window-level shortcuts. While a text editor is open only the save
-/// shortcuts apply (they commit the text first); other keys go to the editor.
-fn key_message(key: gdk::Key, mods: gdk::ModifierType, text_open: bool) -> Option<AppMsg> {
+/// Window-level shortcuts. While a dialog is showing none apply. While a text
+/// editor is open only the save shortcuts apply (they commit the text first);
+/// other keys go to the editor.
+fn key_message(
+    key: gdk::Key,
+    mods: gdk::ModifierType,
+    text_open: bool,
+    dialog_open: bool,
+) -> Option<AppMsg> {
+    if dialog_open {
+        return None;
+    }
     let msg = shortcut(key, mods)?;
     (!text_open || matches!(msg, AppMsg::Save | AppMsg::SaveAs)).then_some(msg)
 }
@@ -629,9 +653,12 @@ impl SimpleComponent for AppModel {
 
         let keys = gtk::EventControllerKey::new();
         keys.connect_key_pressed({
-            let (state, sender) = (state.clone(), sender.clone());
+            let (state, sender, window) = (state.clone(), sender.clone(), root.downgrade());
             move |_, key, _, mods| {
-                match key_message(key, mods, state.borrow().text_open) {
+                // Keys must not change the document under an alert dialog.
+                let dialog_open =
+                    window.upgrade().is_some_and(|w| w.visible_dialog().is_some());
+                match key_message(key, mods, state.borrow().text_open, dialog_open) {
                     Some(msg) => {
                         sender.input(msg);
                         glib::Propagation::Stop
@@ -757,7 +784,11 @@ impl SimpleComponent for AppModel {
             AppMsg::Save if !self.busy => self.save(&sender),
             AppMsg::SaveAs if !self.busy => self.save_as(&sender),
             AppMsg::Save | AppMsg::SaveAs => {}
-            AppMsg::SaveChosen(path) => {
+            AppMsg::SaveChosen(Some(path)) if files::would_replace_other_file(&path) => {
+                self.busy = false;
+                self.confirm_replace(path, &sender);
+            }
+            AppMsg::SaveChosen(path) | AppMsg::ReplaceConfirmed(path) => {
                 self.busy = false;
                 let ok = path.is_some_and(|p| self.write(&p));
                 self.after_save(ok);
@@ -851,9 +882,9 @@ mod tests {
     #[test]
     fn open_text_editor_only_lets_save_shortcuts_through() {
         let ctrl = M::CONTROL_MASK;
-        assert!(matches!(key_message(gdk::Key::s, ctrl, true), Some(AppMsg::Save)));
+        assert!(matches!(key_message(gdk::Key::s, ctrl, true, false), Some(AppMsg::Save)));
         assert!(matches!(
-            key_message(gdk::Key::S, ctrl | M::SHIFT_MASK, true),
+            key_message(gdk::Key::S, ctrl | M::SHIFT_MASK, true, false),
             Some(AppMsg::SaveAs)
         ));
         for (k, m) in [
@@ -864,8 +895,28 @@ mod tests {
             (gdk::Key::r, M::empty()),
             (gdk::Key::Delete, M::empty()),
         ] {
-            assert!(key_message(k, m, true).is_none(), "{k:?} must reach the text editor");
+            assert!(key_message(k, m, true, false).is_none(), "{k:?} must reach the text editor");
         }
-        assert!(matches!(key_message(gdk::Key::c, ctrl, false), Some(AppMsg::Copy)));
+        assert!(matches!(key_message(gdk::Key::c, ctrl, false, false), Some(AppMsg::Copy)));
+    }
+
+    #[test]
+    fn open_dialog_blocks_all_shortcuts() {
+        let ctrl = M::CONTROL_MASK;
+        for (k, m) in [
+            (gdk::Key::Delete, M::empty()),
+            (gdk::Key::BackSpace, M::empty()),
+            (gdk::Key::z, ctrl),
+            (gdk::Key::y, ctrl),
+            (gdk::Key::v, ctrl),
+            (gdk::Key::c, ctrl),
+            (gdk::Key::s, ctrl),
+            (gdk::Key::S, ctrl | M::SHIFT_MASK),
+            (gdk::Key::r, M::empty()),
+        ] {
+            for text_open in [false, true] {
+                assert!(key_message(k, m, text_open, true).is_none(), "{k:?} acts under a dialog");
+            }
+        }
     }
 }
