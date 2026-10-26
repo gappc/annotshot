@@ -39,3 +39,11 @@ Run `tests/gui/gui.sh` without arguments for all commands. The window sits at
 0,0 (1100×750) on a 1280×800 screen, so screen coordinates equal window
 coordinates. `ANNOTSHOT_BIN` and `ANNOTSHOT_TEST_DISPLAY` (default `:99`)
 override the app binary and display.
+
+## Demo GIF
+
+`tests/gui/demo.sh` records the README's `docs/demo.gif` (needs `ffmpeg`): it
+pastes a made-up settings page from `mkdemo.py`, marks up a bug report and
+then adjusts the annotations. Run it after UI changes that show in the demo;
+the script drives the mouse by image coordinates, so changing the page layout
+in `mkdemo.py` means updating the coordinates too.

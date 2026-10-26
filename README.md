@@ -2,6 +2,8 @@
 
 A small GNOME app for annotating screenshots: paste an image from the clipboard, mark it up with boxes, arrows, text, numbered markers, highlights, pixelation and redactions, then copy or save it.
 
+![Annotshot demo: marking up a bug report, then adjusting the annotations](docs/demo.gif)
+
 ## Why
 
 I take screenshots with GNOME's built-in tool. In a meeting I needed to add
