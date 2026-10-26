@@ -106,7 +106,13 @@ screenshots are attached to each run.
 
 The Flatpak recipe lives in `flatpak/`; `.github/workflows/packages.yml` builds
 the bundle and a prebuilt binary (on Debian 13) on every push and attaches
-both to the release when a `v*` tag is pushed. After changing dependencies, run `python3 flatpak/gen-cargo-sources.py`.
+both to the release when a `v*` tag is pushed. After changing dependencies,
+run `python3 flatpak/gen-cargo-sources.py`.
+
+To release a new version: bump `version` in `Cargo.toml`, add a `<release>`
+entry to `data/net.gappc.Annotshot.metainfo.xml`, commit, then tag and push
+(`git tag -a v0.2.0 -m "Annotshot 0.2.0" && git push origin v0.2.0`). CI
+attaches the Flatpak bundle and the binary tarball to the GitHub release.
 
 After changes, run `./install.sh` again to update the launcher version. Design
 and implementation plan: `docs/superpowers/`.

@@ -1,7 +1,7 @@
 # Annotshot — design
 
 Date: 2026-10-26
-Status: implemented (v1, 2026-10-26) — see "Implementation notes" at the end for where the build differs from or adds to this design
+Status: implemented and released as 0.1.0 (2026-10-26) — see "Implementation notes" at the end for where the build differs from or adds to this design
 
 ## Intent
 
@@ -173,6 +173,12 @@ the clipboard. Annotshot never captures anything itself.
 - An install script builds a release binary and installs the binary, desktop
   file and icon into the user's home (`~/.local/bin`,
   `~/.local/share/applications`, `~/.local/share/icons`). No root needed.
+- *Added for the public release (2026-10-26):* GitHub releases carry a
+  Flatpak bundle (GNOME runtime, any distribution) and a prebuilt binary
+  tarball built on Debian 13 (GTK ≥ 4.16 and libadwaita ≥ 1.6, e.g. Ubuntu
+  25.04+, Fedora 41+). The tarball's `install.sh` uses the prebuilt binary.
+  The binary exists because a first Flatpak install also downloads the
+  ~1 GB GNOME runtime, which the user found too heavy for a small tool.
 
 ### Numbered markers (added 2026-10-26, agreed with the user)
 
@@ -225,6 +231,10 @@ In this order (user said these are sometimes required, so high priority):
 3. ~~Pixelate~~ — done, see "Pixelate". Blur was dropped (user: pixelate
    alone is enough); it could come back as a second look of the same tool.
 
+Next (not designed yet): submit to Flathub. The app ID `net.gappc.Annotshot`
+stays (the user owns gappc.net; Flathub verifies it with a token file under
+`https://gappc.net/.well-known/`).
+
 ## Left to the builder
 
 - Internal architecture: item model, how relm4 components are split, how
@@ -273,3 +283,24 @@ Wayland desktop (clipboard after closing, save dialog, 125 % scaling).
   pixelation redraws in about 3 ms instead of 9 ms (release build; one-off
   build 4–7 ms). Export computes directly. Timing probe:
   `cargo test --release -- --ignored --nocapture pixelate_4k`.
+
+### Release and packaging (0.1.0, 2026-10-26)
+
+- **Flatpak:** recipe in `flatpak/net.gappc.Annotshot.yml` (GNOME 51
+  runtime, Rust SDK extension, offline build). `flatpak/cargo-sources.json`
+  lists every crate download; regenerate it with
+  `python3 flatpak/gen-cargo-sources.py` after `Cargo.lock` changes (an own
+  script, equivalent to Flathub's generator for crates.io-only projects).
+  AppStream metadata in `data/net.gappc.Annotshot.metainfo.xml`, store
+  screenshot `docs/screenshot.png`. Passes `flatpak-builder-lint`; the only
+  repo-lint errors are about screenshot mirroring, which Flathub's own build
+  does.
+- **CI:** `.github/workflows/packages.yml` builds the Flatpak bundle (Flathub
+  CI container) and the binary tarball (Debian 13 container, steps run in
+  bash) on every push, and attaches both to the GitHub release for `v*` tags.
+- **Verified by the user** on Ubuntu 26.04 with the Flatpak: a copied image
+  survives closing the window, and the app quits once something else is
+  copied. GNOME showed no "Background Apps" entry for it (in a session
+  started before Flatpak was installed); harmless.
+- **README:** a "Why" section and `docs/demo.gif`, recorded headless by
+  `tests/gui/demo.sh` from a made-up page (`tests/gui/mkdemo.py`).
