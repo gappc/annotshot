@@ -20,9 +20,14 @@ if [ "${1:-}" = "--uninstall" ]; then
 fi
 
 cd "$HERE"
-cargo build --release
+if [ -x annotshot ] && [ ! -f Cargo.toml ]; then
+    BIN=annotshot                       # prebuilt binary from a release tarball
+else
+    cargo build --release
+    BIN=target/release/annotshot
+fi
 mkdir -p "$BINDIR" "$APPDIR" "$ICONDIR"
-install -m 755 target/release/annotshot "$BINDIR/annotshot"
+install -m 755 "$BIN" "$BINDIR/annotshot"
 sed "s|@BINDIR@|$BINDIR|" data/net.gappc.Annotshot.desktop > "$APPDIR/net.gappc.Annotshot.desktop"
 install -m 644 data/net.gappc.Annotshot.svg "$ICONDIR/net.gappc.Annotshot.svg"
 refresh_caches

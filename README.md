@@ -26,16 +26,28 @@ too, marked as cosmetic only.
 
 ## Install
 
+Downloads are on the [latest release](https://github.com/gappc/annotshot/releases/latest).
+
+### Prebuilt binary (recent distributions)
+
+For distributions with GTK ≥ 4.16 and libadwaita ≥ 1.6, e.g. Ubuntu 25.04+,
+Debian 13+ or Fedora 41+. Download `annotshot-<version>-x86_64-linux.tar.gz`,
+then:
+
+    tar xzf annotshot-*-x86_64-linux.tar.gz
+    cd annotshot-*-x86_64-linux
+    ./install.sh              # installs to ~/.local, no root needed
+
 ### Flatpak (any distribution)
 
-Download `annotshot.flatpak` from the
-[latest release](https://github.com/gappc/annotshot/releases/latest), then:
+Download `annotshot.flatpak`, then:
 
     flatpak install --user annotshot.flatpak
 
-This also fetches the GNOME runtime from Flathub if it is missing (see
-[Flathub setup](https://flathub.org/setup) if Flatpak isn't set up yet).
-Annotshot then appears in the app launcher.
+If you don't use other Flatpak apps yet, the first install also downloads the
+GNOME runtime from Flathub, about 1 GB. It is shared by all GNOME Flatpak apps,
+so it is often already there. See [Flathub setup](https://flathub.org/setup)
+if Flatpak isn't set up yet.
 
 ### From source
 
@@ -92,9 +104,9 @@ GitHub Actions (`.github/workflows/ci.yml`) runs the tests, clippy and the
 headless GUI run on every push, in an Ubuntu 26.04 container; the
 screenshots are attached to each run.
 
-The Flatpak recipe lives in `flatpak/`; `.github/workflows/flatpak.yml` builds
-the bundle on every push and attaches it to the release when a `v*` tag is
-pushed. After changing dependencies, run `python3 flatpak/gen-cargo-sources.py`.
+The Flatpak recipe lives in `flatpak/`; `.github/workflows/packages.yml` builds
+the bundle and a prebuilt binary (on Debian 13) on every push and attaches
+both to the release when a `v*` tag is pushed. After changing dependencies, run `python3 flatpak/gen-cargo-sources.py`.
 
 After changes, run `./install.sh` again to update the launcher version. Design
 and implementation plan: `docs/superpowers/`.

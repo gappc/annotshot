@@ -1,0 +1,75 @@
+name: Packages
+
+# Builds the Flatpak bundle and a prebuilt binary tarball on every push; for
+# v* tags, attaches both to the GitHub release.
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write  # attach files to a release on version tags
+
+jobs:
+  flatpak:
+    runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/flathub-infra/flatpak-github-actions:gnome-51
+      options: --privileged
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build bundle
+        uses: flatpak/flatpak-github-actions/flatpak-builder@v6
+        with:
+          manifest-path: flatpak/net.gappc.Annotshot.yml
+          bundle: annotshot.flatpak
+          cache-key: flatpak-builder-${{ hashFiles('Cargo.lock') }}
+
+      - name: Attach to release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: annotshot.flatpak
+
+  binary:
+    runs-on: ubuntu-latest
+    # Debian 13 is the oldest common release with GTK >= 4.16 and
+    # libadwaita >= 1.6, so its build runs on the widest range of distros.
+    container: debian:trixie
+    steps:
+      - name: Install system packages
+        env:
+          DEBIAN_FRONTEND: noninteractive
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends \
+            build-essential pkg-config ca-certificates curl git \
+            libgtk-4-dev libadwaita-1-dev
+
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Build and pack
+        run: |
+          cargo build --release --locked
+          name="annotshot-${GITHUB_REF_NAME//\//-}-x86_64-linux"
+          mkdir -p "$name/data"
+          cp target/release/annotshot install.sh LICENSE README.md "$name/"
+          cp data/net.gappc.Annotshot.desktop data/net.gappc.Annotshot.svg "$name/data/"
+          tar czf "$name.tar.gz" "$name"
+          echo "TARBALL=$name.tar.gz" >> "$GITHUB_ENV"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: binary
+          path: ${{ env.TARBALL }}
+
+      - name: Attach to release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ${{ env.TARBALL }}
