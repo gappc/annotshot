@@ -379,6 +379,7 @@ fn shortcut(key: gdk::Key, mods: gdk::ModifierType) -> Option<AppMsg> {
         gdk::Key::t => Some(AppMsg::SetTool(Tool::Text)),
         gdk::Key::x => Some(AppMsg::SetTool(Tool::Redact)),
         gdk::Key::n => Some(AppMsg::SetTool(Tool::Marker)),
+        gdk::Key::h => Some(AppMsg::SetTool(Tool::Highlight)),
         gdk::Key::Delete | gdk::Key::KP_Delete | gdk::Key::BackSpace => {
             Some(AppMsg::DeleteSelected)
         }
@@ -508,6 +509,17 @@ impl SimpleComponent for AppModel {
                                 connect_toggled[sender] => move |b| if b.is_active() {
                                     sender.input(AppMsg::SetTool(Tool::Marker));
                                 } @h_marker,
+                            },
+                            gtk::ToggleButton {
+                                set_label: "Highlight",
+                                set_group: Some(&tool_select),
+                                set_tooltip_text: Some("Highlight (H)"),
+                                #[watch]
+                                #[block_signal(h_highlight)]
+                                set_active: model.tool == Tool::Highlight,
+                                connect_toggled[sender] => move |b| if b.is_active() {
+                                    sender.input(AppMsg::SetTool(Tool::Highlight));
+                                } @h_highlight,
                             },
 
                             gtk::Separator {},
@@ -855,6 +867,7 @@ mod tests {
         assert_eq!(tool_of(gdk::Key::t, M::empty()), Some(Tool::Text));
         assert_eq!(tool_of(gdk::Key::x, M::empty()), Some(Tool::Redact));
         assert_eq!(tool_of(gdk::Key::n, M::empty()), Some(Tool::Marker));
+        assert_eq!(tool_of(gdk::Key::h, M::empty()), Some(Tool::Highlight));
         assert_eq!(tool_of(gdk::Key::x, M::ALT_MASK), None);
     }
 

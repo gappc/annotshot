@@ -106,6 +106,7 @@ the clipboard. Annotshot never captures anything itself.
 | Text | T | Click to place a label and start typing; edits in place. Enter inserts a new line (multi-line labels, no automatic wrapping). Escape or clicking elsewhere finishes. Empty labels are discarded. *(Designer's call.)* |
 | Redact | X *(builder may choose another letter)* | Drag to draw a solid, opaque filled box (uses the current color; black should be among the colors). |
 | Marker | N | Click to place a numbered circle (1, 2, 3 …), centered on the click; drag before releasing to position it. *(Added 2026-10-26, see "Numbered markers".)* |
+| Highlight | H | Drag to draw a highlighter-like tint. *(Added 2026-10-26, see "Highlight".)* |
 
 - After drawing an item, the current tool stays active so several items can be
   drawn in a row.
@@ -185,12 +186,28 @@ the clipboard. Annotshot never captures anything itself.
 - A selected marker can be dragged by its inside with every tool except Text
   (move cursor). It has no resize handles.
 
+### Highlight (added 2026-10-26, agreed with the user)
+
+- A rectangle without outline, blended in "multiply" mode like a highlighter
+  pen: dark text underneath stays dark, only the background takes the color.
+  Ignores the line width. Resizes and moves like a redaction.
+- Yellow is used as is; other colors are mixed halfway with white so the
+  text stays readable (black gives a grey wash).
+- Highlights are always drawn directly on the screenshot, under every other
+  annotation, whatever order they were drawn in (canvas and export alike).
+  Select therefore picks other items before a highlight at the same spot.
+- Starts in yellow (user). *Builder's call:* the Highlight tool keeps its own
+  current color. Switching to it shows the highlight color, switching away
+  brings back the color the other tools had. A selection of the other kind
+  is dropped on that switch, so the color buttons never show one color while
+  changing an item of another.
+
 ## Roadmap after the first version
 
 In this order (user said these are sometimes required, so high priority):
 
 1. ~~Numbered markers~~ — done, see "Numbered markers".
-2. Highlight (semi-transparent marker over an area, e.g. yellow).
+2. ~~Highlight~~ — done, see "Highlight".
 3. Pixelate / blur as a *visual* effect. Pixelate needs no extra crates; smooth
    blur would add `image`/`imageproc`. Must be clearly separate from Redact,
    which remains the safe option for sensitive data (pixelated and blurred

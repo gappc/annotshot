@@ -1,6 +1,6 @@
 # Highlight tool Implementation Plan
 
-> Executed inline (superpowers:executing-plans). Steps use checkbox (`- [ ]`) syntax.
+> Status: executed 2026-10-26 on branch feature/highlight (inline). Addition: a highlight being dragged is also drawn under the other items.
 
 **Goal:** A Highlight tool (H): drag a semi-transparent, highlighter-like rectangle.
 
@@ -37,11 +37,11 @@ plus the details agreed on 2026-10-26 below.
 ## Tasks
 
 ### Task 1: Model, geometry, editor
-- [ ] Tests: highlight grab/hit like redact; `highlight_tool_draws_yellow_and_restores_color`; `set_tool_clears_mismatched_selection`; `select_prefers_items_over_highlights`; set_color on selected highlight + undo.
-- [ ] `Shape::Highlight`, `Tool::Highlight`, `Editor::set_tool(Tool)` with `highlight_color`/`other_color`; geometry arms shared with Redact; app uses `set_tool`.
+- [x] Tests: highlight grab/hit like redact; `highlight_tool_draws_yellow_and_restores_color`; `set_tool_clears_mismatched_selection`; `select_prefers_items_over_highlights`; set_color on selected highlight + undo.
+- [x] `Shape::Highlight`, `Tool::Highlight`, `Editor::set_tool(Tool)` with `highlight_color`/`other_color`; geometry arms shared with Redact; app uses `set_tool`.
 
 ### Task 2: Render, app, GUI check, docs
-- [ ] Tests: `highlight_multiplies` (white → tint, black stays black), `non_yellow_highlight_is_lighter`, `highlights_draw_under_other_items`, `H` key, crosshair cursor.
-- [ ] `highlight_rgb(Color)`, draw arm with `Operator::Multiply`, two-pass `draw_items`; toolbar button + `H`.
-- [ ] smoke.sh: highlight over text lines and under the box; check screenshots.
-- [ ] README + design notes; commit.
+- [x] Tests: `highlight_multiplies` (white → tint, black stays black), `non_yellow_highlight_is_lighter`, `highlights_draw_under_other_items`, `H` key, crosshair cursor.
+- [x] `highlight_rgb(Color)`, draw arm with `Operator::Multiply`, two-pass `draw_items`; toolbar button + `H`.
+- [x] smoke.sh: highlight over text lines and under the box; check screenshots.
+- [x] README + design notes; commit.

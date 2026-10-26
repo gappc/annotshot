@@ -58,6 +58,16 @@ fn set_color(cr: &cairo::Context, color: crate::model::Color) {
     cr.set_source_rgb(r, g, b);
 }
 
+/// Highlight tint: yellow as is, other colors halfway to white (black → grey),
+/// so text under a multiplied highlight stays readable.
+fn highlight_rgb(color: Color) -> (f64, f64, f64) {
+    let (r, g, b) = color.rgb();
+    match color {
+        Color::Yellow => (r, g, b),
+        _ => ((1.0 + r) / 2.0, (1.0 + g) / 2.0, (1.0 + b) / 2.0),
+    }
+}
+
 fn rect_path(cr: &cairo::Context, r: kurbo::Rect) {
     cr.rectangle(r.x0, r.y0, r.width(), r.height());
 }
@@ -117,7 +127,13 @@ pub fn draw_shape(cr: &cairo::Context, shape: &Shape, number: u32, m: &PangoMeas
             cr.move_to(origin.x + TEXT_PADDING, origin.y + TEXT_PADDING);
             pangocairo::functions::show_layout(cr, &make_layout(cr, text));
         }
-        Shape::Highlight { .. } => {} // drawn in the next task
+        Shape::Highlight { rect, color } => {
+            let (r, g, b) = highlight_rgb(*color);
+            cr.set_source_rgb(r, g, b);
+            cr.set_operator(cairo::Operator::Multiply);
+            rect_path(cr, *rect);
+            let _ = cr.fill();
+        }
         Shape::Marker { center, style } => {
             let r = style.width.marker_radius();
             set_color(cr, style.color);
@@ -141,12 +157,18 @@ pub fn draw_shape(cr: &cairo::Context, shape: &Shape, number: u32, m: &PangoMeas
 }
 
 pub fn draw_items(cr: &cairo::Context, items: &[Item], skip: Option<ItemId>, m: &PangoMeasure) {
+    let drawn = |i: &&Item| Some(i.id) != skip;
+    let is_highlight = |i: &&Item| matches!(i.shape, Shape::Highlight { .. });
+    // Highlights first: they tint the screenshot, never other annotations.
+    for item in items.iter().filter(drawn).filter(is_highlight) {
+        draw_shape(cr, &item.shape, 0, m);
+    }
     let mut markers = 0;
-    for item in items {
+    for item in items.iter().filter(|i| !is_highlight(i)) {
         if let Shape::Marker { .. } = item.shape {
             markers += 1;
         }
-        if Some(item.id) != skip {
+        if drawn(&item) {
             draw_shape(cr, &item.shape, markers, m);
         }
     }
@@ -405,5 +427,54 @@ mod tests {
         let got = region(&mut listed, 120, 120, 160, 160);
         assert_eq!(got, expect(2));
         assert_ne!(got, expect(3));
+    }
+
+    fn highlight(color: Color) -> Shape {
+        Shape::Highlight { rect: Rect::new(20., 20., 180., 180.), color }
+    }
+
+    fn render_on_black_stripe(shape: &Shape) -> cairo::ImageSurface {
+        let mut s = white_surface();
+        {
+            let cr = cairo::Context::new(&s).unwrap();
+            cr.set_source_rgb(0.0, 0.0, 0.0);
+            cr.rectangle(0., 90., 200., 20.);
+            cr.fill().unwrap();
+            draw_shape(&cr, shape, 1, &PangoMeasure::new());
+        }
+        s.flush();
+        let _ = pixel(&mut s, 0, 0);
+        s
+    }
+
+    #[test]
+    fn highlight_multiplies() {
+        let mut s = render_on_black_stripe(&highlight(Color::Yellow));
+        assert!(near(pixel(&mut s, 50, 50), (0xf6, 0xd3, 0x2d))); // white → yellow
+        assert_eq!(pixel(&mut s, 50, 100), (0, 0, 0)); // dark text stays dark
+        assert_eq!(pixel(&mut s, 10, 10), WHITE); // outside
+    }
+
+    #[test]
+    fn non_yellow_highlight_is_lighter() {
+        let mut s = render_on_black_stripe(&highlight(Color::Red));
+        assert!(near(pixel(&mut s, 50, 50), (0xf0, 0x8d, 0x92)), "{:?}", pixel(&mut s, 50, 50));
+        let mut s = render_on_black_stripe(&highlight(Color::Black));
+        assert!(near(pixel(&mut s, 50, 50), (128, 128, 128)), "{:?}", pixel(&mut s, 50, 50));
+    }
+
+    #[test]
+    fn highlights_draw_under_other_items() {
+        let items = [
+            Item { id: 1, shape: Shape::Redact { rect: Rect::new(40., 40., 100., 100.), color: Color::Blue } },
+            Item { id: 2, shape: highlight(Color::Yellow) },
+        ];
+        let mut s = white_surface();
+        {
+            let cr = cairo::Context::new(&s).unwrap();
+            draw_items(&cr, &items, None, &PangoMeasure::new());
+        }
+        assert!(near(pixel(&mut s, 70, 70), (0x35, 0x84, 0xe4))); // redaction untinted
+        assert!(near(pixel(&mut s, 150, 150), (0xf6, 0xd3, 0x2d)));
     }
 }
