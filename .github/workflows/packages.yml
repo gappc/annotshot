@@ -39,6 +39,9 @@ jobs:
     # Debian 13 is the oldest common release with GTK >= 4.16 and
     # libadwaita >= 1.6, so its build runs on the widest range of distros.
     container: debian:trixie
+    defaults:
+      run:
+        shell: bash  # container steps default to sh, which lacks ${var//a/b}
     steps:
       - name: Install system packages
         env:
