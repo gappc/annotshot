@@ -30,7 +30,6 @@ impl ViewTransform {
         ((p.to_vec2() - self.offset) / self.scale).to_point()
     }
 
-    #[allow(dead_code)] // places the in-place text editor (Task 7)
     pub fn to_widget(self, p: Point) -> Point {
         (p.to_vec2() * self.scale + self.offset).to_point()
     }

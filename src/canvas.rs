@@ -7,9 +7,10 @@ use gtk::cairo;
 use gtk::prelude::*;
 use kurbo::{Point, Size};
 
-use crate::editor::Editor;
+use crate::editor::{Editor, PressOutcome, Tool};
 use crate::model::ItemId;
 use crate::render::{PangoMeasure, draw_items, draw_selection, draw_shape};
+use crate::text_edit::TextEditor;
 use crate::view::ViewTransform;
 
 /// Hit tolerance in screen pixels.
@@ -103,8 +104,14 @@ fn finish_drag(state: &SharedCanvas, drag: &Cell<Option<ActiveDrag>>) -> bool {
 }
 
 /// Install the draw func and pointer gestures. `changed` is called after any
-/// editor change that may affect the toolbar (selection, history).
-pub fn attach(area: &gtk::DrawingArea, state: SharedCanvas, changed: impl Fn() + Clone + 'static) {
+/// editor change that may affect the toolbar (selection, history). Presses
+/// commit an open text editor first and open it for the Text tool.
+pub fn attach(
+    area: &gtk::DrawingArea,
+    state: SharedCanvas,
+    text: Rc<TextEditor>,
+    changed: impl Fn() + Clone + 'static,
+) {
     {
         let state = state.clone();
         area.set_draw_func(move |_, cr, w, h| draw(&state.borrow(), cr, w, h));
@@ -115,20 +122,28 @@ pub fn attach(area: &gtk::DrawingArea, state: SharedCanvas, changed: impl Fn() +
     gesture.set_button(gtk::gdk::BUTTON_PRIMARY);
 
     gesture.connect_drag_begin({
-        let (state, drag, area, changed) = (state.clone(), drag.clone(), area.clone(), changed.clone());
+        let (state, drag, area, text, changed) =
+            (state.clone(), drag.clone(), area.clone(), text.clone(), changed.clone());
         move |_, x, y| {
             let finished = finish_drag(&state, &drag);
+            // A press outside the open editor commits it, then is handled normally.
+            let committed = text.commit();
             let pressed = {
                 let mut st = state.borrow_mut();
                 let st = &mut *st;
                 st.view(area.width() as f64, area.height() as f64).map(|view| {
                     let p = view.to_image(Point::new(x, y));
-                    // StartText / EditText outcomes are handled by the text editor (Task 7).
-                    let _ = st.editor.press(p, HIT_TOLERANCE / view.scale, &st.measure);
+                    let outcome = st.editor.press(p, HIT_TOLERANCE / view.scale, &st.measure);
                     drag.set(Some(ActiveDrag { start: Point::new(x, y), last: p, view }));
+                    (outcome, view)
                 })
             };
-            if finished || pressed.is_some() {
+            match pressed {
+                Some((PressOutcome::StartText(p), view)) => text.start_new(p, view),
+                Some((PressOutcome::EditText(id), view)) => text.start_edit(id, view),
+                _ => {}
+            }
+            if finished || committed || pressed.is_some() {
                 area.queue_draw();
                 changed();
             }
@@ -174,18 +189,39 @@ pub fn attach(area: &gtk::DrawingArea, state: SharedCanvas, changed: impl Fn() +
     let click = gtk::GestureClick::new();
     click.set_button(gtk::gdk::BUTTON_PRIMARY);
     click.connect_pressed({
-        let (state, area) = (state.clone(), area.clone());
+        let (state, drag, area, text, changed) =
+            (state.clone(), drag.clone(), area.clone(), text.clone(), changed.clone());
         move |_, n_press, x, y| {
-            if n_press != 2 {
+            if n_press != 2 || text.is_open() {
                 return;
             }
-            let mut st = state.borrow_mut();
-            let st = &mut *st;
-            if let Some(view) = st.view(area.width() as f64, area.height() as f64) {
-                let p = view.to_image(Point::new(x, y));
-                // The hit text item is opened for editing by Task 7.
-                let _ = st.editor.double_click(p, HIT_TOLERANCE / view.scale, &st.measure);
-            }
+            let hit = {
+                let mut st = state.borrow_mut();
+                let st = &mut *st;
+                if st.editor.tool != Tool::Select {
+                    return;
+                }
+                st.view(area.width() as f64, area.height() as f64).and_then(|view| {
+                    let p = view.to_image(Point::new(x, y));
+                    st.editor
+                        .double_click(p, HIT_TOLERANCE / view.scale, &st.measure)
+                        .map(|id| (id, view))
+                })
+            };
+            let Some((id, view)) = hit else { return };
+            // Open after this press is fully dispatched, so the drag gesture's
+            // handling of the same press (which commits any open editor and
+            // starts a move) cannot close the new editor, whatever the order.
+            let (state, drag, area, text, changed) =
+                (state.clone(), drag.clone(), area.clone(), text.clone(), changed.clone());
+            gtk::glib::idle_add_local_once(move || {
+                // End the move drag the second press started so the label
+                // stays put while it is edited.
+                finish_drag(&state, &drag);
+                text.start_edit(id, view);
+                area.queue_draw();
+                changed();
+            });
         }
     });
     area.add_controller(click);
@@ -194,7 +230,6 @@ pub fn attach(area: &gtk::DrawingArea, state: SharedCanvas, changed: impl Fn() +
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::editor::Tool;
     use crate::model::Color;
 
     fn pixel(s: &mut cairo::ImageSurface, x: usize, y: usize) -> (u8, u8, u8) {

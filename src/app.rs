@@ -9,6 +9,7 @@ use crate::canvas::{self, CanvasState, SharedCanvas};
 use crate::editor::Tool;
 use crate::export::surface_from_texture;
 use crate::model::{Color, Width};
+use crate::text_edit::TextEditor;
 
 const CSS: &str = "
 button.swatch { min-width: 24px; min-height: 24px; padding: 0; border-radius: 12px; }
@@ -23,6 +24,7 @@ button.swatch:checked { border: 2px solid @window_fg_color; }
 pub struct AppModel {
     state: SharedCanvas,
     canvas: gtk::DrawingArea,
+    text: Rc<TextEditor>,
     toasts: adw::ToastOverlay,
     // Mirrors of the canvas state that the toolbar reflects; refreshed by `sync`.
     tool: Tool,
@@ -43,6 +45,9 @@ pub enum AppMsg {
     Undo,
     Redo,
     DeleteSelected,
+    /// Commit the in-place text editor, if open (Escape, canvas resize; Task 8
+    /// sends it before copy/save/close or calls `commit_text_if_open`).
+    TextCommit,
     /// The canvas state changed outside `update` (pointer gestures).
     Redraw,
 }
@@ -61,6 +66,13 @@ impl AppModel {
         self.has_image = st.image.is_some();
         drop(st);
         self.canvas.queue_draw();
+    }
+
+    /// Commit an open text editor into the document. Every action that acts on
+    /// the document as a whole (tool switch, paste, undo, copy, save, close)
+    /// calls this first.
+    pub fn commit_text_if_open(&self) -> bool {
+        self.text.commit()
     }
 
     fn toast(&self, text: &str) {
@@ -302,6 +314,7 @@ impl SimpleComponent for AppModel {
                             },
                         },
 
+                        #[name = "canvas_overlay"]
                         gtk::Overlay {
                             set_hexpand: true,
                             set_vexpand: true,
@@ -335,7 +348,21 @@ impl SimpleComponent for AppModel {
         let state: SharedCanvas = Rc::new(RefCell::new(CanvasState::new()));
         let canvas = gtk::DrawingArea::new();
         let toasts = adw::ToastOverlay::new();
-        canvas::attach(&canvas, state.clone(), {
+        let text = Rc::new(TextEditor::new(state.clone(), {
+            let sender = sender.clone();
+            move || sender.input(AppMsg::TextCommit)
+        }));
+        // The editor is placed for the current view; a resize changes the view,
+        // so commit rather than reposition (deferred: not during allocation).
+        canvas.connect_resize({
+            let (text, sender) = (text.clone(), sender.clone());
+            move |_, _, _| {
+                if text.is_open() {
+                    sender.input(AppMsg::TextCommit);
+                }
+            }
+        });
+        canvas::attach(&canvas, state.clone(), text.clone(), {
             let sender = sender.clone();
             move || sender.input(AppMsg::Redraw)
         });
@@ -361,6 +388,7 @@ impl SimpleComponent for AppModel {
         let mut model = AppModel {
             state,
             canvas,
+            text,
             toasts,
             tool: Tool::default(),
             color: Color::default(),
@@ -372,6 +400,7 @@ impl SimpleComponent for AppModel {
         model.sync();
         let (canvas, toasts) = (&model.canvas, &model.toasts);
         let widgets = view_output!();
+        widgets.canvas_overlay.add_overlay(model.text.widget());
         ComponentParts { model, widgets }
     }
 
@@ -385,23 +414,46 @@ impl SimpleComponent for AppModel {
                 });
             }
             AppMsg::Pasted(Some(texture)) => {
+                self.commit_text_if_open();
                 let mut st = self.state.borrow_mut();
                 st.editor.reset();
                 st.editing = None;
                 st.image = Some(surface_from_texture(&texture));
             }
             AppMsg::Pasted(None) => self.toast("Clipboard does not contain an image"),
-            AppMsg::SetTool(tool) => self.state.borrow_mut().editor.tool = tool,
-            AppMsg::SetColor(color) => self.state.borrow_mut().editor.set_color(color),
-            AppMsg::SetWidth(width) => self.state.borrow_mut().editor.set_width(width),
+            AppMsg::SetTool(tool) => {
+                self.commit_text_if_open();
+                self.state.borrow_mut().editor.tool = tool;
+            }
+            AppMsg::SetColor(color) => {
+                // An edited existing label is selected, so this recolors it;
+                // the open editor follows the new color either way.
+                self.state.borrow_mut().editor.set_color(color);
+                if self.text.is_open() {
+                    self.text.set_color(color);
+                }
+            }
+            AppMsg::SetWidth(width) => {
+                self.state.borrow_mut().editor.set_width(width);
+                if self.text.is_open() {
+                    // Labels have no width; just keep typing.
+                    self.text.widget().grab_focus();
+                }
+            }
             AppMsg::Undo => {
+                self.commit_text_if_open();
                 self.state.borrow_mut().editor.undo();
             }
             AppMsg::Redo => {
+                self.commit_text_if_open();
                 self.state.borrow_mut().editor.redo();
             }
             AppMsg::DeleteSelected => {
+                self.commit_text_if_open();
                 self.state.borrow_mut().editor.delete_selected();
+            }
+            AppMsg::TextCommit => {
+                self.commit_text_if_open();
             }
             AppMsg::Redraw => {}
         }

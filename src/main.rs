@@ -9,6 +9,7 @@ mod history;
 #[allow(dead_code)] // consumed by later tasks
 mod model;
 mod render;
+mod text_edit;
 mod view;
 
 use app::AppModel;
