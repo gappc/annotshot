@@ -1,6 +1,10 @@
 mod app;
 #[allow(dead_code)] // consumed by later tasks
+mod editor;
+#[allow(dead_code)] // consumed by later tasks
 mod geometry;
+#[allow(dead_code)] // consumed by later tasks
+mod history;
 #[allow(dead_code)] // consumed by later tasks
 mod model;
 
