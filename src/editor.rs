@@ -83,8 +83,21 @@ impl Editor {
         let id = self.alloc_id();
         self.items.push(Item { id, shape });
         self.selected = Some(id);
+        self.adopt_selected_style();
         self.commit_from(before);
         id
+    }
+
+    /// Make the current style match the selected item, so the toolbar always
+    /// shows the style the next shape will use. Text/Redact have no width.
+    fn adopt_selected_style(&mut self) {
+        let Some(item) = self.selected.and_then(|id| self.items.iter().find(|i| i.id == id)) else {
+            return;
+        };
+        match &item.shape {
+            Shape::Rect { style, .. } | Shape::Arrow { style, .. } => self.style = *style,
+            Shape::Text { color, .. } | Shape::Redact { color, .. } => self.style.color = *color,
+        }
     }
 
     fn index_of(&self, id: ItemId) -> Option<usize> {
@@ -103,6 +116,7 @@ impl Editor {
                 }
                 let hit = self.items.iter().rev().find(|i| hit_test(&i.shape, p, tol, m)).map(|i| i.id);
                 self.selected = hit;
+                self.adopt_selected_style();
                 if let Some(id) = hit {
                     self.drag = Drag::Move { id, last: p, before: self.items.clone() };
                 }
@@ -260,6 +274,7 @@ impl Editor {
         if self.selected.is_some_and(|id| self.index_of(id).is_none()) {
             self.selected = None;
         }
+        self.adopt_selected_style();
         self.dirty = true;
     }
 
@@ -598,6 +613,48 @@ mod tests {
         assert!(e.items.is_empty() && e.selected.is_none());
         assert!(!e.is_dirty() && !e.can_undo() && !e.can_redo());
         assert_eq!(e.tool, Tool::Arrow);
+        assert_eq!(e.style.color, Color::Blue);
+    }
+
+    #[test]
+    fn selecting_an_item_adopts_its_style() {
+        let mut e = Editor::new();
+        e.set_color(Color::Blue);
+        e.set_width(Width::Thick);
+        draw(&mut e, pt(10., 10.), pt(100., 100.));
+        e.selected = None;
+        e.set_color(Color::Red);
+        e.set_width(Width::Thin);
+        e.tool = Tool::Select;
+        e.press(pt(10., 50.), 2.0, &M);
+        e.release(pt(10., 50.));
+        assert_eq!(e.style, Style { color: Color::Blue, width: Width::Thick });
+    }
+
+    #[test]
+    fn selecting_redact_adopts_color_but_keeps_width() {
+        let mut e = Editor::new();
+        e.tool = Tool::Redact;
+        e.set_color(Color::Black);
+        draw(&mut e, pt(10., 10.), pt(100., 100.));
+        e.selected = None;
+        e.set_color(Color::Green);
+        e.set_width(Width::Thin);
+        e.tool = Tool::Select;
+        e.press(pt(50., 50.), 2.0, &M);
+        e.release(pt(50., 50.));
+        assert_eq!(e.style, Style { color: Color::Black, width: Width::Thin });
+    }
+
+    #[test]
+    fn undo_restoring_selected_item_adopts_its_style() {
+        let mut e = Editor::new();
+        draw(&mut e, pt(10., 10.), pt(100., 100.)); // red, medium, selected
+        e.set_color(Color::Blue);
+        assert!(e.undo());
+        assert!(e.selected.is_some());
+        assert_eq!(e.style.color, Color::Red);
+        assert!(e.redo());
         assert_eq!(e.style.color, Color::Blue);
     }
 }

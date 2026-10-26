@@ -8,7 +8,7 @@ use relm4::prelude::*;
 use crate::canvas::{self, CanvasState, SharedCanvas};
 use crate::editor::Tool;
 use crate::export::surface_from_texture;
-use crate::model::{Color, Shape, Width};
+use crate::model::{Color, Width};
 
 const CSS: &str = "
 button.swatch { min-width: 24px; min-height: 24px; padding: 0; border-radius: 12px; }
@@ -53,18 +53,9 @@ impl AppModel {
         let st = self.state.borrow();
         let ed = &st.editor;
         self.tool = ed.tool;
-        // A selected item shows its own style; otherwise the style for new items.
-        let (mut color, mut width) = (ed.style.color, ed.style.width);
-        if let Some(item) = ed.selected.and_then(|id| ed.items.iter().find(|i| i.id == id)) {
-            match &item.shape {
-                Shape::Rect { style, .. } | Shape::Arrow { style, .. } => {
-                    (color, width) = (style.color, style.width);
-                }
-                Shape::Text { color: c, .. } | Shape::Redact { color: c, .. } => color = *c,
-            }
-        }
-        self.color = color;
-        self.width = width;
+        // The editor keeps `style` equal to the selected item's style.
+        self.color = ed.style.color;
+        self.width = ed.style.width;
         self.can_undo = ed.can_undo();
         self.can_redo = ed.can_redo();
         self.has_image = st.image.is_some();
