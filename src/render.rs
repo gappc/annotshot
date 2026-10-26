@@ -29,6 +29,14 @@ impl TextMeasure for PangoMeasure {
 
 fn make_layout(cr: &cairo::Context, text: &str) -> pango::Layout {
     let layout = pangocairo::functions::create_layout(cr);
+    // Unhinted metrics scale linearly, so text measured on an identity context
+    // fits the same box when drawn under the canvas view scale.
+    if let Ok(mut opts) = cairo::FontOptions::new() {
+        opts.set_hint_metrics(cairo::HintMetrics::Off);
+        opts.set_hint_style(cairo::HintStyle::None);
+        pangocairo::functions::context_set_font_options(&layout.context(), Some(&opts));
+        layout.context_changed();
+    }
     let mut font = pango::FontDescription::from_string("Sans Bold");
     font.set_absolute_size(TEXT_FONT_PX * pango::SCALE as f64);
     layout.set_font_description(Some(&font));
@@ -262,6 +270,23 @@ mod tests {
         assert_eq!(pixel(&mut s, 52, 52), WHITE);
         let b = pixel(&mut s, 46, 52);
         assert!(b.0 < 200 && b.1 < 200 && b.2 < 200, "{b:?}");
+    }
+
+    #[test]
+    fn text_size_is_independent_of_view_scale() {
+        let m = PangoMeasure::new();
+        let text = "Remove the arrow\nand this WWW label";
+        let expected = m.text_size(text);
+        for scale in [0.25, 0.37, 0.5, 0.71] {
+            let s = cairo::ImageSurface::create(cairo::Format::ARgb32, 10, 10).unwrap();
+            let cr = cairo::Context::new(&s).unwrap();
+            cr.scale(scale, scale);
+            let (w, h) = make_layout(&cr, text).size();
+            let w = w as f64 / pango::SCALE as f64;
+            let h = h as f64 / pango::SCALE as f64;
+            assert!(w <= expected.width + 0.5, "scale {scale}: {w} > {}", expected.width);
+            assert!(h <= expected.height + 0.5, "scale {scale}: {h} > {}", expected.height);
+        }
     }
 
     #[test]
