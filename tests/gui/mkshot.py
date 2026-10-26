@@ -21,7 +21,8 @@ def rect(x0, y0, x1, y1, color):
 
 
 rect(0, 0, W, 40, (59, 74, 90))  # header bar
-rect(20, 60, 300, 80, (40, 40, 40))  # title
+for x in range(20, 300, 7):  # title: glyph-like strokes, fine detail for pixelation
+    rect(x, 62 + (x % 3) * 2, x + 3, 80 - (x % 5), (40, 40, 40))
 for i in range(8):  # text lines
     rect(20, 100 + i * 22, W - 40 - (i % 3) * 60, 110 + i * 22, (190, 190, 190))
 rect(20, 300, 160, 336, (34, 170, 119))  # button

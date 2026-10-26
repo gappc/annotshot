@@ -107,6 +107,7 @@ the clipboard. Annotshot never captures anything itself.
 | Redact | X *(builder may choose another letter)* | Drag to draw a solid, opaque filled box (uses the current color; black should be among the colors). |
 | Marker | N | Click to place a numbered circle (1, 2, 3 …), centered on the click; drag before releasing to position it. *(Added 2026-10-26, see "Numbered markers".)* |
 | Highlight | H | Drag to draw a highlighter-like tint. *(Added 2026-10-26, see "Highlight".)* |
+| Pixelate | P | Drag to turn the screenshot inside into coarse blocks. Visual only, not for sensitive data. *(Added 2026-10-26, see "Pixelate".)* |
 
 - After drawing an item, the current tool stays active so several items can be
   drawn in a row.
@@ -202,16 +203,27 @@ the clipboard. Annotshot never captures anything itself.
   is dropped on that switch, so the color buttons never show one color while
   changing an item of another.
 
+### Pixelate (added 2026-10-26, agreed with the user)
+
+- Drag a rectangle; the screenshot inside becomes blocks of its average
+  colors. Block size follows the line width: 6 / 10 / 16 image pixels. Color
+  is ignored. Resizes and moves like a redaction.
+- Blocks sit on a grid anchored at the image's top-left corner, so they
+  don't shift while the rectangle moves. Averages use only pixels inside the
+  rectangle.
+- Always made from the original screenshot and drawn under everything else
+  (pixelations, then highlights, then the other annotations).
+- Not safe for sensitive data (pixelated text can be reconstructed); the
+  tooltip and README point to Redact. No blur (user's choice).
+
 ## Roadmap after the first version
 
 In this order (user said these are sometimes required, so high priority):
 
 1. ~~Numbered markers~~ — done, see "Numbered markers".
 2. ~~Highlight~~ — done, see "Highlight".
-3. Pixelate / blur as a *visual* effect. Pixelate needs no extra crates; smooth
-   blur would add `image`/`imageproc`. Must be clearly separate from Redact,
-   which remains the safe option for sensitive data (pixelated and blurred
-   text can be reconstructed by tools like Depix and Unredacter).
+3. ~~Pixelate~~ — done, see "Pixelate". Blur was dropped (user: pixelate
+   alone is enough); it could come back as a second look of the same tool.
 
 ## Left to the builder
 
@@ -252,3 +264,6 @@ Wayland desktop (clipboard after closing, save dialog, 125 % scaling).
 - **Markers:** the number is derived while drawing (`render::draw_items`
   counts markers in item order), so it can't get out of step with deletes,
   undo or redo. The marker being placed shows the next number.
+- **Shape being drawn:** the canvas draws it as part of the item list, so a
+  highlight or pixelation is layered like finished ones and a new marker shows
+  the next number.

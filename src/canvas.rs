@@ -9,8 +9,8 @@ use kurbo::{Point, Size};
 
 use crate::editor::{Editor, Hover, PressOutcome, Tool};
 use crate::geometry::Handle;
-use crate::model::{ItemId, Shape};
-use crate::render::{PangoMeasure, draw_items, draw_selection, draw_shape};
+use crate::model::{Item, ItemId};
+use crate::render::{PangoMeasure, draw_items, draw_selection};
 use crate::text_edit::TextEditor;
 use crate::view::{ViewTransform, inside_image};
 
@@ -70,16 +70,19 @@ pub fn draw(st: &CanvasState, cr: &cairo::Context, width: i32, height: i32) {
         let _ = cr.paint();
     }
     let ed = &st.editor;
-    // A highlight being drawn sits under the other items, like finished ones.
-    let provisional = ed.provisional();
-    let under = provisional.filter(|s| matches!(s, Shape::Highlight { .. }));
-    if let Some(shape) = under {
-        draw_shape(cr, shape, 0, &st.measure);
-    }
-    draw_items(cr, &ed.items, st.editing, &st.measure);
-    if let Some(shape) = provisional.filter(|_| under.is_none()) {
-        draw_shape(cr, shape, ed.next_marker_number(), &st.measure);
-    }
+    // The shape being drawn joins the list, so it gets the same layering
+    // (and, for a marker, the next number) as the finished items.
+    let with_provisional;
+    let items = match ed.provisional() {
+        Some(shape) => {
+            let mut v = ed.items.clone();
+            v.push(Item { id: ItemId::MAX, shape: shape.clone() });
+            with_provisional = v;
+            &with_provisional
+        }
+        None => &ed.items,
+    };
+    draw_items(cr, items, st.editing, img, &st.measure);
     let _ = cr.restore();
 
     if let Some(item) = ed
@@ -306,6 +309,7 @@ mod tests {
         assert_eq!(h(Handle::Center), "move");
         assert_eq!(cursor_for(Hover::Nothing, Tool::Marker, true), "crosshair");
         assert_eq!(cursor_for(Hover::Nothing, Tool::Highlight, true), "crosshair");
+        assert_eq!(cursor_for(Hover::Nothing, Tool::Pixelate, true), "crosshair");
         assert_eq!(cursor_for(Hover::Item, Tool::Select, true), "move");
         assert_eq!(cursor_for(Hover::Nothing, Tool::Rect, true), "crosshair");
         assert_eq!(cursor_for(Hover::Nothing, Tool::Rect, false), "default");

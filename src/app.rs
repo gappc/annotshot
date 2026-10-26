@@ -380,6 +380,7 @@ fn shortcut(key: gdk::Key, mods: gdk::ModifierType) -> Option<AppMsg> {
         gdk::Key::x => Some(AppMsg::SetTool(Tool::Redact)),
         gdk::Key::n => Some(AppMsg::SetTool(Tool::Marker)),
         gdk::Key::h => Some(AppMsg::SetTool(Tool::Highlight)),
+        gdk::Key::p => Some(AppMsg::SetTool(Tool::Pixelate)),
         gdk::Key::Delete | gdk::Key::KP_Delete | gdk::Key::BackSpace => {
             Some(AppMsg::DeleteSelected)
         }
@@ -520,6 +521,17 @@ impl SimpleComponent for AppModel {
                                 connect_toggled[sender] => move |b| if b.is_active() {
                                     sender.input(AppMsg::SetTool(Tool::Highlight));
                                 } @h_highlight,
+                            },
+                            gtk::ToggleButton {
+                                set_label: "Pixelate",
+                                set_group: Some(&tool_select),
+                                set_tooltip_text: Some("Pixelate (P) – not safe for sensitive data, use Redact"),
+                                #[watch]
+                                #[block_signal(h_pixelate)]
+                                set_active: model.tool == Tool::Pixelate,
+                                connect_toggled[sender] => move |b| if b.is_active() {
+                                    sender.input(AppMsg::SetTool(Tool::Pixelate));
+                                } @h_pixelate,
                             },
 
                             gtk::Separator {},
@@ -868,6 +880,7 @@ mod tests {
         assert_eq!(tool_of(gdk::Key::x, M::empty()), Some(Tool::Redact));
         assert_eq!(tool_of(gdk::Key::n, M::empty()), Some(Tool::Marker));
         assert_eq!(tool_of(gdk::Key::h, M::empty()), Some(Tool::Highlight));
+        assert_eq!(tool_of(gdk::Key::p, M::empty()), Some(Tool::Pixelate));
         assert_eq!(tool_of(gdk::Key::x, M::ALT_MASK), None);
     }
 

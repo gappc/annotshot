@@ -420,11 +420,6 @@ impl Editor {
         self.dirty = false;
     }
 
-    /// Number the next placed marker gets (shown on the provisional one).
-    pub fn next_marker_number(&self) -> u32 {
-        1 + self.items.iter().filter(|i| matches!(i.shape, Shape::Marker { .. })).count() as u32
-    }
-
     pub fn provisional(&self) -> Option<&Shape> {
         match &self.drag {
             Drag::Draw { shape, .. } => Some(shape),
@@ -852,14 +847,12 @@ mod tests {
     fn marker_tool_places_on_click() {
         let mut e = Editor::new();
         e.tool = Tool::Marker;
-        assert_eq!(e.next_marker_number(), 1);
         e.press(pt(50., 50.), 6., &M);
         assert!(matches!(e.provisional(), Some(Shape::Marker { .. })));
         e.release(pt(50., 50.));
         assert_eq!(e.items.len(), 1);
         assert_eq!(center_of(&e, 0), pt(50., 50.));
         assert_eq!(e.selected, Some(e.items[0].id));
-        assert_eq!(e.next_marker_number(), 2);
         assert!(e.is_dirty());
     }
 
@@ -886,7 +879,6 @@ mod tests {
         assert!(e.delete_selected());
         assert_eq!(numbers(&e), vec![Some(1), None, Some(2)]);
         assert_eq!(center_of(&e, 2), pt(300., 100.));
-        assert_eq!(e.next_marker_number(), 3);
         assert!(e.undo());
         assert_eq!(numbers(&e), vec![Some(1), None, Some(2), Some(3)]);
         assert_eq!(center_of(&e, 2), pt(200., 100.));

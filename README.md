@@ -1,6 +1,6 @@
 # Annotshot
 
-A small GNOME app for annotating screenshots: paste an image from the clipboard, mark it up with boxes, arrows, text, numbered markers, highlights and redactions, then copy or save it.
+A small GNOME app for annotating screenshots: paste an image from the clipboard, mark it up with boxes, arrows, text, numbered markers, highlights, pixelation and redactions, then copy or save it.
 
 ## Prerequisites
 
@@ -28,6 +28,7 @@ Annotshot then appears in the GNOME app launcher.
 | X | Redact |
 | N | Numbered marker |
 | H | Highlight |
+| P | Pixelate |
 | Ctrl+V | Paste |
 | Ctrl+C | Copy |
 | Ctrl+S | Save |
@@ -43,7 +44,8 @@ Annotshot then appears in the GNOME app launcher.
 - The file name's extension decides the format when saving: `.png` → PNG, `.jpg`/`.jpeg` → JPEG, no extension → `.jpg` is added. Choosing the PNG filter in the save dialog is not enough; change the name to end in `.png`.
 - **Markers** count 1, 2, 3 … in the order you place them. Deleting one renumbers the later ones. The line width sets their size.
 - **Highlights** sit under all other annotations and keep dark text readable. The Highlight tool starts in yellow and remembers its own color; the other tools keep theirs.
-- Use **Redact** (a solid box) to hide sensitive data. Pixelating or blurring is not safe.
+- **Pixelate** sets its block size from the line width and, like highlights, sits under all other annotations.
+- Use **Redact** (a solid box) to hide sensitive data. **Pixelate is not safe for that**: pixelated text can be reconstructed.
 - A copied image stays available after you close the window: Annotshot keeps running in the background until something else is copied.
 
 ## Development

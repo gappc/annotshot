@@ -73,7 +73,8 @@ fn rect_path(cr: &cairo::Context, r: kurbo::Rect) {
 }
 
 /// Draw one shape. `number` is the label of a marker and ignored otherwise.
-pub fn draw_shape(cr: &cairo::Context, shape: &Shape, number: u32, m: &PangoMeasure) {
+/// Pixelations need the screenshot and are drawn by `draw_items`.
+fn draw_shape(cr: &cairo::Context, shape: &Shape, number: u32, m: &PangoMeasure) {
     let _ = cr.save();
     cr.set_line_join(cairo::LineJoin::Round);
     cr.set_line_cap(cairo::LineCap::Round);
@@ -127,7 +128,7 @@ pub fn draw_shape(cr: &cairo::Context, shape: &Shape, number: u32, m: &PangoMeas
             cr.move_to(origin.x + TEXT_PADDING, origin.y + TEXT_PADDING);
             pangocairo::functions::show_layout(cr, &make_layout(cr, text));
         }
-        Shape::Pixelate { .. } => {} // drawn in the next task
+        Shape::Pixelate { .. } => {}
         Shape::Highlight { rect, color } => {
             let (r, g, b) = highlight_rgb(*color);
             cr.set_source_rgb(r, g, b);
@@ -157,15 +158,83 @@ pub fn draw_shape(cr: &cairo::Context, shape: &Shape, number: u32, m: &PangoMeas
     let _ = cr.restore();
 }
 
-pub fn draw_items(cr: &cairo::Context, items: &[Item], skip: Option<ItemId>, m: &PangoMeasure) {
+/// Replace `rect` with blocks of `base` averaged over a `block`-sized grid
+/// anchored at the image origin (so blocks don't shift while the rect moves).
+/// Averages only use pixels inside the rect.
+fn draw_pixelate(cr: &cairo::Context, rect: kurbo::Rect, block: usize, base: &cairo::ImageSurface) {
+    let clamp = |v: f64, max: i32| (v.round() as i64).clamp(0, max as i64) as usize;
+    let (x0, x1) = (clamp(rect.x0, base.width()), clamp(rect.x1, base.width()));
+    let (y0, y1) = (clamp(rect.y0, base.height()), clamp(rect.y1, base.height()));
+    if x0 >= x1 || y0 >= y1 {
+        return;
+    }
+    let (gx, gy) = (x0 / block * block, y0 / block * block);
+    let (cols, rows) = ((x1 - gx).div_ceil(block), (y1 - gy).div_ceil(block));
+    let Ok(mut grid) = cairo::ImageSurface::create(cairo::Format::Rgb24, cols as i32, rows as i32) else {
+        return;
+    };
+    let src_stride = base.stride() as usize;
+    let dst_stride = grid.stride() as usize;
+    {
+        let Ok(mut dst) = grid.data() else { return };
+        let _ = base.with_data(|src| {
+            for row in 0..rows {
+                let (cy0, cy1) = ((gy + row * block).max(y0), (gy + (row + 1) * block).min(y1));
+                for col in 0..cols {
+                    let (cx0, cx1) = ((gx + col * block).max(x0), (gx + (col + 1) * block).min(x1));
+                    let mut sum = [0usize; 3];
+                    for y in cy0..cy1 {
+                        for x in cx0..cx1 {
+                            let i = y * src_stride + x * 4;
+                            for (c, s) in sum.iter_mut().enumerate() {
+                                *s += src[i + c] as usize;
+                            }
+                        }
+                    }
+                    let n = (cy1 - cy0) * (cx1 - cx0);
+                    let o = row * dst_stride + col * 4;
+                    for c in 0..3 {
+                        dst[o + c] = ((sum[c] + n / 2) / n) as u8;
+                    }
+                }
+            }
+        });
+    }
+    let _ = cr.save();
+    cr.rectangle(x0 as f64, y0 as f64, (x1 - x0) as f64, (y1 - y0) as f64);
+    cr.clip();
+    cr.translate(gx as f64, gy as f64);
+    cr.scale(block as f64, block as f64);
+    if cr.set_source_surface(&grid, 0.0, 0.0).is_ok() {
+        cr.source().set_filter(cairo::Filter::Nearest);
+        let _ = cr.paint();
+    }
+    let _ = cr.restore();
+}
+
+/// Draw all items over the screenshot `base` (already painted). Layers:
+/// pixelations (made from `base` alone), then highlights, then everything
+/// else in list order. `skip` hides one item (a label being edited).
+pub fn draw_items(
+    cr: &cairo::Context,
+    items: &[Item],
+    skip: Option<ItemId>,
+    base: &cairo::ImageSurface,
+    m: &PangoMeasure,
+) {
     let drawn = |i: &&Item| Some(i.id) != skip;
-    let is_highlight = |i: &&Item| matches!(i.shape, Shape::Highlight { .. });
-    // Highlights first: they tint the screenshot, never other annotations.
-    for item in items.iter().filter(drawn).filter(is_highlight) {
-        draw_shape(cr, &item.shape, 0, m);
+    for item in items.iter().filter(drawn) {
+        if let Shape::Pixelate { rect, width } = item.shape {
+            draw_pixelate(cr, rect, width.pixel_block(), base);
+        }
+    }
+    for item in items.iter().filter(drawn) {
+        if let Shape::Highlight { .. } = item.shape {
+            draw_shape(cr, &item.shape, 0, m);
+        }
     }
     let mut markers = 0;
-    for item in items.iter().filter(|i| !is_highlight(i)) {
+    for item in items.iter().filter(|i| !i.shape.is_underlay()) {
         if let Shape::Marker { .. } = item.shape {
             markers += 1;
         }
@@ -296,7 +365,7 @@ mod tests {
                 id: 7,
                 shape: Shape::Redact { rect: Rect::new(20., 20., 80., 80.), color: Color::Black },
             }];
-            draw_items(&cr, &items, Some(7), &PangoMeasure::new());
+            draw_items(&cr, &items, Some(7), &white_surface(), &PangoMeasure::new());
         }
         assert_eq!(pixel(&mut s, 50, 50), WHITE);
     }
@@ -310,7 +379,7 @@ mod tests {
                 Item { id: 1, shape: Shape::Redact { rect: Rect::new(20., 20., 80., 80.), color: Color::Black } },
                 Item { id: 2, shape: Shape::Redact { rect: Rect::new(40., 40., 100., 100.), color: Color::Red } },
             ];
-            draw_items(&cr, &items, None, &PangoMeasure::new());
+            draw_items(&cr, &items, None, &white_surface(), &PangoMeasure::new());
         }
         assert!(near(pixel(&mut s, 50, 50), RED));
         assert_eq!(pixel(&mut s, 30, 30), (0, 0, 0));
@@ -415,7 +484,7 @@ mod tests {
         let mut listed = white_surface();
         {
             let cr = cairo::Context::new(&listed).unwrap();
-            draw_items(&cr, &items, None, &PangoMeasure::new());
+            draw_items(&cr, &items, None, &white_surface(), &PangoMeasure::new());
         }
         let expect = |n: u32| {
             let mut s = white_surface();
@@ -473,9 +542,70 @@ mod tests {
         let mut s = white_surface();
         {
             let cr = cairo::Context::new(&s).unwrap();
-            draw_items(&cr, &items, None, &PangoMeasure::new());
+            draw_items(&cr, &items, None, &white_surface(), &PangoMeasure::new());
         }
         assert!(near(pixel(&mut s, 70, 70), (0x35, 0x84, 0xe4))); // redaction untinted
         assert!(near(pixel(&mut s, 150, 150), (0xf6, 0xd3, 0x2d)));
+    }
+
+    /// 40x40 screenshot: black for x < 15, white from x = 15.
+    fn split_base() -> cairo::ImageSurface {
+        let s = cairo::ImageSurface::create(cairo::Format::ARgb32, 40, 40).unwrap();
+        let cr = cairo::Context::new(&s).unwrap();
+        cr.set_source_rgb(1.0, 1.0, 1.0);
+        cr.paint().unwrap();
+        cr.set_source_rgb(0.0, 0.0, 0.0);
+        cr.rectangle(0., 0., 15., 40.);
+        cr.fill().unwrap();
+        drop(cr);
+        s
+    }
+
+    /// Paint `base`, then draw `items` on it, like the export does.
+    fn flatten(base: &cairo::ImageSurface, items: &[Item]) -> cairo::ImageSurface {
+        let out = cairo::ImageSurface::create(cairo::Format::ARgb32, base.width(), base.height()).unwrap();
+        {
+            let cr = cairo::Context::new(&out).unwrap();
+            cr.set_source_surface(base, 0., 0.).unwrap();
+            cr.paint().unwrap();
+            draw_items(&cr, items, None, base, &PangoMeasure::new());
+        }
+        out
+    }
+
+    fn pixelate(rect: Rect) -> Item {
+        Item { id: 1, shape: Shape::Pixelate { rect, width: Width::Medium } }
+    }
+
+    #[test]
+    fn pixelate_averages_blocks_on_image_grid() {
+        let base = split_base();
+        let mut s = flatten(&base, &[pixelate(Rect::new(3., 3., 40., 40.))]);
+        // Blocks sit on a 10 px grid from the image origin, not from the rect.
+        assert_eq!(pixel(&mut s, 5, 5), (0, 0, 0));
+        let grey = pixel(&mut s, 12, 12); // block 10..20: half black, half white
+        assert!(near(grey, (128, 128, 128)), "{grey:?}");
+        assert_eq!(pixel(&mut s, 19, 30), grey);
+        assert_eq!(pixel(&mut s, 25, 25), WHITE);
+        // Outside the rect the screenshot is untouched.
+        assert_eq!(pixel(&mut s, 14, 1), (0, 0, 0));
+        assert_eq!(pixel(&mut s, 16, 1), WHITE);
+    }
+
+    #[test]
+    fn pixelate_reads_screenshot_not_annotations() {
+        let base = split_base();
+        let blue = Item { id: 2, shape: Shape::Redact { rect: Rect::new(0., 0., 40., 10.), color: Color::Blue } };
+        let mut s = flatten(&base, &[blue, pixelate(Rect::new(0., 0., 40., 40.))]);
+        assert!(near(pixel(&mut s, 12, 5), (0x35, 0x84, 0xe4))); // redaction intact on top
+        assert!(near(pixel(&mut s, 12, 15), (128, 128, 128))); // blue not mixed in
+    }
+
+    #[test]
+    fn pixelate_clips_to_image_and_ignores_empty_rects() {
+        let base = split_base();
+        let mut s = flatten(&base, &[pixelate(Rect::new(-20., -20., 1000., 15.)), pixelate(Rect::new(5., 30., 5., 30.))]);
+        assert!(near(pixel(&mut s, 12, 5), (128, 128, 128)));
+        assert_eq!(pixel(&mut s, 12, 30), (0, 0, 0)); // below the rect, empty rect drew nothing
     }
 }

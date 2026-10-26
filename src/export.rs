@@ -38,7 +38,7 @@ pub fn flatten(base: &ImageSurface, items: &[Item], m: &PangoMeasure) -> ImageSu
         let cr = cairo::Context::new(&out).expect("create cairo context");
         cr.set_source_surface(base, 0.0, 0.0).expect("paint base");
         cr.paint().expect("paint base");
-        draw_items(&cr, items, None, m);
+        draw_items(&cr, items, None, base, m);
     }
     out.flush();
     out

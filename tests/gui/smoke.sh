@@ -1,7 +1,8 @@
 #!/bin/bash
 # Example run: paste a sample screenshot, type a two-line label, draw a box and
 # resize it by a corner and a side, draw an arrow and move its start point,
-# place numbered markers, move one, delete one and undo, then highlight.
+# place numbered markers, move one, delete one and undo, then highlight and
+# pixelate.
 # Screenshots land in tests/gui/out/; look at them to judge the result.
 set -euo pipefail
 HERE=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
@@ -54,6 +55,12 @@ g shot 09-highlight 230,180,760,450
 g key r
 g drag 300 370 360 400               # back on Box: red again, not yellow
 g shot 10-box-after-highlight 230,180,760,450
+
+g key p
+g drag 270 250 480 330               # pixelate the dark bar; box and highlight stay on top
+g shot 11-pixelate 230,180,760,450
+g key ctrl+z
+g shot 12-pixelate-undone 230,180,760,450
 
 # Fail if the app crashed along the way (screenshots alone wouldn't show it).
 kill -0 "$(cat "$HERE/out/app.pid")" || { echo "annotshot is no longer running" >&2; exit 1; }
