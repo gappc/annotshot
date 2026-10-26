@@ -15,5 +15,8 @@ use app::AppModel;
 use relm4::RelmApp;
 
 fn main() {
-    RelmApp::new("net.gappc.Annotshot").run::<AppModel>(());
+    // The app shows its window itself on activate (see `AppModel::init`).
+    RelmApp::new("net.gappc.Annotshot")
+        .visible_on_activate(false)
+        .run::<AppModel>(());
 }

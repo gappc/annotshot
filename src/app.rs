@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
 use adw::prelude::*;
-use gtk::{gdk, glib};
+use gtk::{gdk, gio, glib};
 use relm4::prelude::*;
 
 use crate::canvas::{self, CanvasState, SharedCanvas};
@@ -37,6 +37,9 @@ pub struct AppModel {
     busy: bool,
     /// Set right before closing for real so `close-request` lets it through.
     allow_close: Rc<Cell<bool>>,
+    /// Set while the window is hidden after closing because our copy is
+    /// still on the clipboard.
+    linger: SharedLinger,
     // Mirrors of the canvas state that the toolbar reflects; refreshed by `sync`.
     tool: Tool,
     color: Color,
@@ -53,6 +56,57 @@ pub enum Pending {
     NewImage(gdk::Texture),
     Close,
 }
+
+/// What closing the window for real does.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum CloseAction {
+    Quit,
+    /// Our copy is on the clipboard and would vanish with the process: hide
+    /// the window and stay alive until something else owns the clipboard.
+    HideAndHold,
+}
+
+fn close_action(owns_clipboard: bool) -> CloseAction {
+    if owns_clipboard {
+        CloseAction::HideAndHold
+    } else {
+        CloseAction::Quit
+    }
+}
+
+/// What activating the app (launching it again) does.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum ActivateAction {
+    Present,
+    /// The window was closed and only hidden: start over with an empty one.
+    ResetAndPresent,
+}
+
+fn activate_action(hidden_after_close: bool) -> ActivateAction {
+    if hidden_after_close {
+        ActivateAction::ResetAndPresent
+    } else {
+        ActivateAction::Present
+    }
+}
+
+/// Keeps the process alive while the closed window's copy is on the
+/// clipboard. Dropping it stops watching the clipboard and releases the hold.
+struct Linger {
+    _hold: gio::ApplicationHoldGuard,
+    clipboard: gdk::Clipboard,
+    handler: Option<glib::SignalHandlerId>,
+}
+
+impl Drop for Linger {
+    fn drop(&mut self) {
+        if let Some(handler) = self.handler.take() {
+            self.clipboard.disconnect(handler);
+        }
+    }
+}
+
+type SharedLinger = Rc<RefCell<Option<Linger>>>;
 
 #[derive(Debug)]
 pub enum AppMsg {
@@ -78,6 +132,8 @@ pub enum AppMsg {
     CloseRequested,
     /// Answer to the unsaved-changes dialog about `pending`.
     Confirmed(Choice),
+    /// Launched again after the window was closed but kept hidden.
+    Reopen,
 }
 
 impl AppModel {
@@ -212,10 +268,56 @@ impl AppModel {
         });
     }
 
-    /// The single place where the window really closes.
+    /// Empty document, as on a fresh start.
+    fn reset(&mut self) {
+        self.commit_text_if_open();
+        let mut st = self.state.borrow_mut();
+        st.editor.reset();
+        st.editing = None;
+        st.image = None;
+        drop(st);
+        self.file = None;
+        self.pending = None;
+        self.busy = false;
+    }
+
+    /// The single place where the window really closes. While our copy is on
+    /// the clipboard the process must stay alive to serve it, so the window
+    /// is only hidden until another app takes over the clipboard.
     fn close_window(&self) {
-        self.allow_close.set(true);
-        self.window.close();
+        let clipboard = self.canvas.display().clipboard();
+        match close_action(clipboard.is_local()) {
+            CloseAction::Quit => {
+                self.allow_close.set(true);
+                self.window.close();
+            }
+            CloseAction::HideAndHold => self.hide_until_clipboard_lost(clipboard),
+        }
+    }
+
+    fn hide_until_clipboard_lost(&self, clipboard: gdk::Clipboard) {
+        self.window.set_visible(false);
+        let handler = clipboard.connect_local_notify({
+            let (linger, window) = (self.linger.clone(), self.window.clone());
+            move |clipboard| {
+                if clipboard.is_local() {
+                    return;
+                }
+                // Take it out first so dropping it (disconnect, release) runs
+                // outside the borrow; `None` means the window was reopened.
+                let lingering = linger.borrow_mut().take();
+                if lingering.is_some() {
+                    // The hidden window is the app's last one: this quits.
+                    window.destroy();
+                }
+                drop(lingering);
+            }
+        });
+        *self.linger.borrow_mut() = Some(Linger {
+            _hold: relm4::main_application().hold(),
+            clipboard,
+            handler: Some(handler),
+        });
     }
 }
 
@@ -553,6 +655,22 @@ impl SimpleComponent for AppModel {
             }
         });
 
+        // Single instance: launching again activates this process. The window
+        // is shown here (relm4's own showing is off, see main.rs) so a window
+        // that was closed and hidden can be emptied before it reappears.
+        let linger: SharedLinger = Rc::default();
+        relm4::main_application().connect_activate({
+            let (linger, window, sender) = (linger.clone(), root.clone(), sender.clone());
+            move |_| {
+                // Reopened: stop waiting for the clipboard; the next close decides anew.
+                let hidden = linger.borrow_mut().take().is_some();
+                match activate_action(hidden) {
+                    ActivateAction::Present => window.present(),
+                    ActivateAction::ResetAndPresent => sender.input(AppMsg::Reopen),
+                }
+            }
+        });
+
         let mut model = AppModel {
             state,
             canvas,
@@ -563,6 +681,7 @@ impl SimpleComponent for AppModel {
             pending: None,
             busy: false,
             allow_close,
+            linger,
             tool: Tool::default(),
             color: Color::default(),
             width: Width::default(),
@@ -663,6 +782,10 @@ impl SimpleComponent for AppModel {
                     Choice::Save => self.save(&sender),
                 }
             }
+            AppMsg::Reopen => {
+                self.reset();
+                self.window.present();
+            }
         }
         self.sync();
     }
@@ -710,6 +833,18 @@ mod tests {
         for k in [gdk::Key::Delete, gdk::Key::BackSpace] {
             assert!(matches!(shortcut(k, M::empty()), Some(AppMsg::DeleteSelected)));
         }
+    }
+
+    #[test]
+    fn close_hides_only_while_owning_clipboard() {
+        assert_eq!(close_action(false), CloseAction::Quit);
+        assert_eq!(close_action(true), CloseAction::HideAndHold);
+    }
+
+    #[test]
+    fn activate_resets_only_a_hidden_window() {
+        assert_eq!(activate_action(false), ActivateAction::Present);
+        assert_eq!(activate_action(true), ActivateAction::ResetAndPresent);
     }
 
     #[test]
