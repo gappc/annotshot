@@ -7,6 +7,8 @@ mod geometry;
 mod history;
 #[allow(dead_code)] // consumed by later tasks
 mod model;
+#[allow(dead_code)] // consumed by later tasks
+mod render;
 
 use app::AppModel;
 use relm4::RelmApp;
