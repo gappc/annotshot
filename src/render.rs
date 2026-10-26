@@ -2,6 +2,10 @@ use crate::geometry::{bounds, handles};
 use crate::model::{
     Color, Item, ItemId, Shape, TextMeasure, TEXT_BORDER, TEXT_FONT_PX, TEXT_PADDING,
 };
+use std::cell::RefCell;
+use std::collections::HashMap;
+use std::rc::Rc;
+
 use gtk::cairo;
 use gtk::pango;
 use kurbo::{Point, Size};
@@ -158,10 +162,77 @@ fn draw_shape(cr: &cairo::Context, shape: &Shape, number: u32, m: &PangoMeasure)
     let _ = cr.restore();
 }
 
+/// Average colors of the whole cells of a `block` grid over one screenshot.
+struct CellGrid {
+    cols: usize,
+    avg: Vec<[u8; 3]>,
+}
+
+impl CellGrid {
+    fn build(base: &cairo::ImageSurface, block: usize) -> CellGrid {
+        let cols = base.width() as usize / block;
+        let rows = base.height() as usize / block;
+        let stride = base.stride() as usize;
+        let n = (block * block) as u32;
+        let mut avg = Vec::with_capacity(cols * rows);
+        let _ = base.with_data(|src| {
+            let mut sums = vec![[0u32; 3]; cols];
+            for row in 0..rows {
+                sums.fill([0; 3]);
+                for y in row * block..(row + 1) * block {
+                    let line = &src[y * stride..y * stride + cols * block * 4];
+                    for (sum, cell) in sums.iter_mut().zip(line.chunks_exact(block * 4)) {
+                        for px in cell.as_chunks::<4>().0 {
+                            sum[0] += px[0] as u32;
+                            sum[1] += px[1] as u32;
+                            sum[2] += px[2] as u32;
+                        }
+                    }
+                }
+                avg.extend(sums.iter().map(|s| s.map(|v| ((v + n / 2) / n) as u8)));
+            }
+        });
+        CellGrid { cols, avg }
+    }
+}
+
+/// Block colors of the current screenshot, computed once per block size, so
+/// redrawing a pixelation (even while it is dragged) only has to work out the
+/// partial cells along its edges. Resets itself when the screenshot changes.
+#[derive(Default)]
+pub struct PixelCache {
+    inner: RefCell<Option<CachedScreenshot>>,
+}
+
+struct CachedScreenshot {
+    surface: cairo::ImageSurface,
+    grids: HashMap<usize, Rc<CellGrid>>,
+}
+
+impl PixelCache {
+    fn grid(&self, base: &cairo::ImageSurface, block: usize) -> Rc<CellGrid> {
+        let mut inner = self.inner.borrow_mut();
+        // Holding a reference to the old surface keeps its address from being
+        // reused by a new one, so the pointer comparison is safe.
+        if inner.as_ref().is_none_or(|c| c.surface.to_raw_none() != base.to_raw_none()) {
+            *inner = Some(CachedScreenshot { surface: base.clone(), grids: HashMap::new() });
+        }
+        let grids = &mut inner.as_mut().expect("just set").grids;
+        grids.entry(block).or_insert_with(|| Rc::new(CellGrid::build(base, block))).clone()
+    }
+}
+
 /// Replace `rect` with blocks of `base` averaged over a `block`-sized grid
 /// anchored at the image origin (so blocks don't shift while the rect moves).
-/// Averages only use pixels inside the rect.
-fn draw_pixelate(cr: &cairo::Context, rect: kurbo::Rect, block: usize, base: &cairo::ImageSurface) {
+/// Averages only use pixels inside the rect. With a `cache`, whole cells come
+/// from it and only cells cut by the rect's edges are summed here.
+fn draw_pixelate(
+    cr: &cairo::Context,
+    rect: kurbo::Rect,
+    block: usize,
+    base: &cairo::ImageSurface,
+    cache: Option<&PixelCache>,
+) {
     let clamp = |v: f64, max: i32| (v.round() as i64).clamp(0, max as i64) as usize;
     let (x0, x1) = (clamp(rect.x0, base.width()), clamp(rect.x1, base.width()));
     let (y0, y1) = (clamp(rect.y0, base.height()), clamp(rect.y1, base.height()));
@@ -173,6 +244,7 @@ fn draw_pixelate(cr: &cairo::Context, rect: kurbo::Rect, block: usize, base: &ca
     let Ok(mut grid) = cairo::ImageSurface::create(cairo::Format::Rgb24, cols as i32, rows as i32) else {
         return;
     };
+    let cells = cache.map(|c| c.grid(base, block));
     let src_stride = base.stride() as usize;
     let dst_stride = grid.stride() as usize;
     {
@@ -182,20 +254,25 @@ fn draw_pixelate(cr: &cairo::Context, rect: kurbo::Rect, block: usize, base: &ca
                 let (cy0, cy1) = ((gy + row * block).max(y0), (gy + (row + 1) * block).min(y1));
                 for col in 0..cols {
                     let (cx0, cx1) = ((gx + col * block).max(x0), (gx + (col + 1) * block).min(x1));
-                    let mut sum = [0usize; 3];
-                    for y in cy0..cy1 {
-                        for x in cx0..cx1 {
-                            let i = y * src_stride + x * 4;
-                            for (c, s) in sum.iter_mut().enumerate() {
-                                *s += src[i + c] as usize;
+                    let whole = cx1 - cx0 == block && cy1 - cy0 == block;
+                    let color = match &cells {
+                        Some(g) if whole => g.avg[(cy0 / block) * g.cols + cx0 / block],
+                        _ => {
+                            let mut sum = [0usize; 3];
+                            for y in cy0..cy1 {
+                                for x in cx0..cx1 {
+                                    let i = y * src_stride + x * 4;
+                                    for (c, s) in sum.iter_mut().enumerate() {
+                                        *s += src[i + c] as usize;
+                                    }
+                                }
                             }
+                            let n = (cy1 - cy0) * (cx1 - cx0);
+                            sum.map(|v| ((v + n / 2) / n) as u8)
                         }
-                    }
-                    let n = (cy1 - cy0) * (cx1 - cx0);
+                    };
                     let o = row * dst_stride + col * 4;
-                    for c in 0..3 {
-                        dst[o + c] = ((sum[c] + n / 2) / n) as u8;
-                    }
+                    dst[o..o + 3].copy_from_slice(&color);
                 }
             }
         });
@@ -215,17 +292,19 @@ fn draw_pixelate(cr: &cairo::Context, rect: kurbo::Rect, block: usize, base: &ca
 /// Draw all items over the screenshot `base` (already painted). Layers:
 /// pixelations (made from `base` alone), then highlights, then everything
 /// else in list order. `skip` hides one item (a label being edited).
+/// `cache` speeds up repeated pixelation of the same screenshot.
 pub fn draw_items(
     cr: &cairo::Context,
     items: &[Item],
     skip: Option<ItemId>,
     base: &cairo::ImageSurface,
+    cache: Option<&PixelCache>,
     m: &PangoMeasure,
 ) {
     let drawn = |i: &&Item| Some(i.id) != skip;
     for item in items.iter().filter(drawn) {
         if let Shape::Pixelate { rect, width } = item.shape {
-            draw_pixelate(cr, rect, width.pixel_block(), base);
+            draw_pixelate(cr, rect, width.pixel_block(), base, cache);
         }
     }
     for item in items.iter().filter(drawn) {
@@ -365,7 +444,7 @@ mod tests {
                 id: 7,
                 shape: Shape::Redact { rect: Rect::new(20., 20., 80., 80.), color: Color::Black },
             }];
-            draw_items(&cr, &items, Some(7), &white_surface(), &PangoMeasure::new());
+            draw_items(&cr, &items, Some(7), &white_surface(), None, &PangoMeasure::new());
         }
         assert_eq!(pixel(&mut s, 50, 50), WHITE);
     }
@@ -379,7 +458,7 @@ mod tests {
                 Item { id: 1, shape: Shape::Redact { rect: Rect::new(20., 20., 80., 80.), color: Color::Black } },
                 Item { id: 2, shape: Shape::Redact { rect: Rect::new(40., 40., 100., 100.), color: Color::Red } },
             ];
-            draw_items(&cr, &items, None, &white_surface(), &PangoMeasure::new());
+            draw_items(&cr, &items, None, &white_surface(), None, &PangoMeasure::new());
         }
         assert!(near(pixel(&mut s, 50, 50), RED));
         assert_eq!(pixel(&mut s, 30, 30), (0, 0, 0));
@@ -484,7 +563,7 @@ mod tests {
         let mut listed = white_surface();
         {
             let cr = cairo::Context::new(&listed).unwrap();
-            draw_items(&cr, &items, None, &white_surface(), &PangoMeasure::new());
+            draw_items(&cr, &items, None, &white_surface(), None, &PangoMeasure::new());
         }
         let expect = |n: u32| {
             let mut s = white_surface();
@@ -542,7 +621,7 @@ mod tests {
         let mut s = white_surface();
         {
             let cr = cairo::Context::new(&s).unwrap();
-            draw_items(&cr, &items, None, &white_surface(), &PangoMeasure::new());
+            draw_items(&cr, &items, None, &white_surface(), None, &PangoMeasure::new());
         }
         assert!(near(pixel(&mut s, 70, 70), (0x35, 0x84, 0xe4))); // redaction untinted
         assert!(near(pixel(&mut s, 150, 150), (0xf6, 0xd3, 0x2d)));
@@ -568,7 +647,7 @@ mod tests {
             let cr = cairo::Context::new(&out).unwrap();
             cr.set_source_surface(base, 0., 0.).unwrap();
             cr.paint().unwrap();
-            draw_items(&cr, items, None, base, &PangoMeasure::new());
+            draw_items(&cr, items, None, base, None, &PangoMeasure::new());
         }
         out
     }
@@ -607,5 +686,84 @@ mod tests {
         let mut s = flatten(&base, &[pixelate(Rect::new(-20., -20., 1000., 15.)), pixelate(Rect::new(5., 30., 5., 30.))]);
         assert!(near(pixel(&mut s, 12, 5), (128, 128, 128)));
         assert_eq!(pixel(&mut s, 12, 30), (0, 0, 0)); // below the rect, empty rect drew nothing
+    }
+
+    #[test]
+    #[ignore] // timing probe: cargo test --release -- --ignored --nocapture pixelate_4k
+    fn pixelate_4k_timing() {
+        let base = cairo::ImageSurface::create(cairo::Format::ARgb32, 3840, 2160).unwrap();
+        let out = cairo::ImageSurface::create(cairo::Format::ARgb32, 3840, 2160).unwrap();
+        let cr = cairo::Context::new(&out).unwrap();
+        let cache = PixelCache::default();
+        for w in [Width::Thin, Width::Thick] {
+            let t = std::time::Instant::now();
+            draw_pixelate(&cr, Rect::new(0., 0., 1., 1.), w.pixel_block(), &base, Some(&cache));
+            eprintln!("{w:?} cache build: {:.1} ms (once per paste and block size)", t.elapsed().as_secs_f64() * 1000.0);
+            for (name, c) in [("direct", None), ("cached", Some(&cache))] {
+                let t = std::time::Instant::now();
+                for i in 0..10 {
+                    // A slightly different rect each time, like a drag.
+                    let r = Rect::new(i as f64, i as f64, 3840. - i as f64, 2160.);
+                    draw_pixelate(&cr, r, w.pixel_block(), &base, c);
+                }
+                eprintln!("{w:?} {name}: {:.1} ms per full-screen pixelation", t.elapsed().as_secs_f64() * 100.0);
+            }
+        }
+    }
+
+    /// Screenshot with fine, irregular detail so every block average differs.
+    fn noisy_base(w: i32, h: i32, seed: usize) -> cairo::ImageSurface {
+        let mut s = cairo::ImageSurface::create(cairo::Format::ARgb32, w, h).unwrap();
+        let stride = s.stride() as usize;
+        {
+            let mut d = s.data().unwrap();
+            for y in 0..h as usize {
+                for x in 0..w as usize {
+                    let i = y * stride + x * 4;
+                    let v = (x * 31 + y * 17 + seed) * 2654435761 % 251;
+                    d[i..i + 4].copy_from_slice(&[v as u8, (v * 3 % 256) as u8, (255 - v) as u8, 255]);
+                }
+            }
+        }
+        s
+    }
+
+    fn pixelated(base: &cairo::ImageSurface, rect: Rect, block: usize, cache: Option<&PixelCache>) -> Vec<u8> {
+        let mut out = cairo::ImageSurface::create(cairo::Format::ARgb32, base.width(), base.height()).unwrap();
+        {
+            let cr = cairo::Context::new(&out).unwrap();
+            draw_pixelate(&cr, rect, block, base, cache);
+        }
+        out.flush();
+        out.data().unwrap().to_vec()
+    }
+
+    #[test]
+    fn cached_pixelation_matches_direct() {
+        let base = noisy_base(97, 61, 0);
+        let cache = PixelCache::default();
+        let rects = [
+            Rect::new(0., 0., 97., 61.),
+            Rect::new(3.4, 7.6, 55., 41.),
+            Rect::new(-10., 20., 200., 25.),
+            Rect::new(12., 12., 18., 18.), // inside one cell
+        ];
+        for block in [6, 10, 16] {
+            for r in rects {
+                for _ in 0..2 {
+                    assert_eq!(pixelated(&base, r, block, Some(&cache)), pixelated(&base, r, block, None), "{block} {r:?}");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn pixel_cache_follows_a_new_screenshot() {
+        let cache = PixelCache::default();
+        let r = Rect::new(0., 0., 60., 40.);
+        let a = noisy_base(60, 40, 0);
+        let _ = pixelated(&a, r, 10, Some(&cache));
+        let b = noisy_base(60, 40, 5);
+        assert_eq!(pixelated(&b, r, 10, Some(&cache)), pixelated(&b, r, 10, None));
     }
 }

@@ -10,7 +10,7 @@ use kurbo::{Point, Size};
 use crate::editor::{Editor, Hover, PressOutcome, Tool};
 use crate::geometry::Handle;
 use crate::model::{Item, ItemId};
-use crate::render::{PangoMeasure, draw_items, draw_selection};
+use crate::render::{PangoMeasure, PixelCache, draw_items, draw_selection};
 use crate::text_edit::TextEditor;
 use crate::view::{ViewTransform, inside_image};
 
@@ -21,6 +21,8 @@ pub struct CanvasState {
     pub editor: Editor,
     pub image: Option<cairo::ImageSurface>,
     pub measure: PangoMeasure,
+    /// Block colors of the screenshot for fast pixelation redraws.
+    pub pixels: PixelCache,
     /// Text item hidden from the canvas while it is being edited in place.
     pub editing: Option<ItemId>,
     /// True while an in-place text editor is open; window shortcuts must let keys through.
@@ -35,6 +37,7 @@ impl CanvasState {
             editor: Editor::new(),
             image: None,
             measure: PangoMeasure::new(),
+            pixels: PixelCache::default(),
             editing: None,
             text_open: false,
         }
@@ -82,7 +85,7 @@ pub fn draw(st: &CanvasState, cr: &cairo::Context, width: i32, height: i32) {
         }
         None => &ed.items,
     };
-    draw_items(cr, items, st.editing, img, &st.measure);
+    draw_items(cr, items, st.editing, img, Some(&st.pixels), &st.measure);
     let _ = cr.restore();
 
     if let Some(item) = ed

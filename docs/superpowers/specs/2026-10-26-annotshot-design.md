@@ -267,3 +267,9 @@ Wayland desktop (clipboard after closing, save dialog, 125 % scaling).
 - **Shape being drawn:** the canvas draws it as part of the item list, so a
   highlight or pixelation is layered like finished ones and a new marker shows
   the next number.
+- **Pixelation speed:** the canvas keeps the block colors of the screenshot
+  per block size (`render::PixelCache`, built on first use after a paste), so
+  a redraw only sums the cells cut by the rectangle's edges. A full-screen 4K
+  pixelation redraws in about 3 ms instead of 9 ms (release build; one-off
+  build 4–7 ms). Export computes directly. Timing probe:
+  `cargo test --release -- --ignored --nocapture pixelate_4k`.
