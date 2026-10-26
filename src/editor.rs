@@ -11,6 +11,24 @@ pub enum Tool {
     Arrow,
     Text,
     Redact,
+    Marker,
+}
+
+/// The number shown in marker `id`: its 1-based position among the markers in
+/// `items`. Deleting one renumbers the later ones; `None` for other items.
+pub fn marker_number(items: &[Item], id: ItemId) -> Option<u32> {
+    let mut n = 0;
+    for item in items {
+        if let Shape::Marker { .. } = item.shape {
+            n += 1;
+            if item.id == id {
+                return Some(n);
+            }
+        } else if item.id == id {
+            return None;
+        }
+    }
+    None
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -105,7 +123,9 @@ impl Editor {
             return;
         };
         match &item.shape {
-            Shape::Rect { style, .. } | Shape::Arrow { style, .. } => self.style = *style,
+            Shape::Rect { style, .. } | Shape::Arrow { style, .. } | Shape::Marker { style, .. } => {
+                self.style = *style
+            }
             Shape::Text { color, .. } | Shape::Redact { color, .. } => self.style.color = *color,
         }
     }
@@ -149,7 +169,11 @@ impl Editor {
     pub fn press(&mut self, p: Point, tol: f64, m: &dyn TextMeasure) -> PressOutcome {
         self.drag = Drag::None;
         if let Some((id, handle)) = self.grab_selected(p, tol) {
-            self.drag = Drag::Handle { id, handle, before: self.items.clone() };
+            let before = self.items.clone();
+            self.drag = match handle {
+                Handle::Center => Drag::Move { id, last: p, before },
+                _ => Drag::Handle { id, handle, before },
+            };
             return PressOutcome::Nothing;
         }
         match self.tool {
@@ -161,10 +185,11 @@ impl Editor {
                     self.drag = Drag::Move { id, last: p, before: self.items.clone() };
                 }
             }
-            Tool::Rect | Tool::Arrow | Tool::Redact => {
+            Tool::Rect | Tool::Arrow | Tool::Redact | Tool::Marker => {
                 let shape = match self.tool {
                     Tool::Rect => Shape::Rect { rect: Rect::from_points(p, p), style: self.style },
                     Tool::Arrow => Shape::Arrow { start: p, end: p, style: self.style },
+                    Tool::Marker => Shape::Marker { center: p, style: self.style },
                     _ => Shape::Redact { rect: Rect::from_points(p, p), color: self.style.color },
                 };
                 self.drag = Drag::Draw { start: p, shape };
@@ -190,6 +215,7 @@ impl Editor {
             Drag::Draw { start, shape } => match shape {
                 Shape::Rect { rect, .. } | Shape::Redact { rect, .. } => *rect = Rect::from_points(*start, p),
                 Shape::Arrow { end, .. } => *end = p,
+                Shape::Marker { center, .. } => *center = p,
                 Shape::Text { .. } => {}
             },
             Drag::Move { id, last, .. } => {
@@ -219,6 +245,7 @@ impl Editor {
                         rect.width() >= MIN_SIZE || rect.height() >= MIN_SIZE
                     }
                     Shape::Arrow { start, end, .. } => start.distance(*end) >= MIN_SIZE,
+                    Shape::Marker { .. } => true,
                     Shape::Text { .. } => false,
                 };
                 if big_enough {
@@ -296,7 +323,9 @@ impl Editor {
     pub fn set_color(&mut self, c: Color) {
         self.style.color = c;
         self.modify_selected(|s| match s {
-            Shape::Rect { style, .. } | Shape::Arrow { style, .. } => style.color = c,
+            Shape::Rect { style, .. } | Shape::Arrow { style, .. } | Shape::Marker { style, .. } => {
+                style.color = c
+            }
             Shape::Text { color, .. } | Shape::Redact { color, .. } => *color = c,
         });
     }
@@ -304,7 +333,9 @@ impl Editor {
     pub fn set_width(&mut self, w: Width) {
         self.style.width = w;
         self.modify_selected(|s| match s {
-            Shape::Rect { style, .. } | Shape::Arrow { style, .. } => style.width = w,
+            Shape::Rect { style, .. } | Shape::Arrow { style, .. } | Shape::Marker { style, .. } => {
+                style.width = w
+            }
             Shape::Text { .. } | Shape::Redact { .. } => {}
         });
     }
@@ -352,6 +383,11 @@ impl Editor {
 
     pub fn mark_saved(&mut self) {
         self.dirty = false;
+    }
+
+    /// Number the next placed marker gets (shown on the provisional one).
+    pub fn next_marker_number(&self) -> u32 {
+        1 + self.items.iter().filter(|i| matches!(i.shape, Shape::Marker { .. })).count() as u32
     }
 
     pub fn provisional(&self) -> Option<&Shape> {
@@ -748,5 +784,95 @@ mod tests {
         assert_eq!(e.style.color, Color::Red);
         assert!(e.redo());
         assert_eq!(e.style.color, Color::Blue);
+    }
+
+    fn center_of(e: &Editor, i: usize) -> Point {
+        match e.items[i].shape {
+            Shape::Marker { center, .. } => center,
+            ref s => panic!("not a marker: {s:?}"),
+        }
+    }
+
+    fn numbers(e: &Editor) -> Vec<Option<u32>> {
+        e.items.iter().map(|i| marker_number(&e.items, i.id)).collect()
+    }
+
+    #[test]
+    fn marker_tool_places_on_click() {
+        let mut e = Editor::new();
+        e.tool = Tool::Marker;
+        assert_eq!(e.next_marker_number(), 1);
+        e.press(pt(50., 50.), 6., &M);
+        assert!(matches!(e.provisional(), Some(Shape::Marker { .. })));
+        e.release(pt(50., 50.));
+        assert_eq!(e.items.len(), 1);
+        assert_eq!(center_of(&e, 0), pt(50., 50.));
+        assert_eq!(e.selected, Some(e.items[0].id));
+        assert_eq!(e.next_marker_number(), 2);
+        assert!(e.is_dirty());
+    }
+
+    #[test]
+    fn marker_press_then_drag_positions_it() {
+        let mut e = Editor::new();
+        e.tool = Tool::Marker;
+        draw(&mut e, pt(50., 50.), pt(80., 90.));
+        assert_eq!(center_of(&e, 0), pt(80., 90.));
+    }
+
+    #[test]
+    fn numbers_follow_order_and_close_gaps() {
+        let mut e = Editor::new();
+        e.tool = Tool::Marker;
+        draw(&mut e, pt(100., 100.), pt(100., 100.));
+        e.tool = Tool::Rect;
+        draw(&mut e, pt(300., 300.), pt(350., 350.));
+        e.tool = Tool::Marker;
+        draw(&mut e, pt(200., 100.), pt(200., 100.));
+        draw(&mut e, pt(300., 100.), pt(300., 100.));
+        assert_eq!(numbers(&e), vec![Some(1), None, Some(2), Some(3)]);
+        e.selected = Some(e.items[2].id);
+        assert!(e.delete_selected());
+        assert_eq!(numbers(&e), vec![Some(1), None, Some(2)]);
+        assert_eq!(center_of(&e, 2), pt(300., 100.));
+        assert_eq!(e.next_marker_number(), 3);
+        assert!(e.undo());
+        assert_eq!(numbers(&e), vec![Some(1), None, Some(2), Some(3)]);
+        assert_eq!(center_of(&e, 2), pt(200., 100.));
+    }
+
+    #[test]
+    fn marker_tool_on_selected_marker_moves_it() {
+        let mut e = Editor::new();
+        e.tool = Tool::Marker;
+        draw(&mut e, pt(100., 100.), pt(100., 100.));
+        assert_eq!(e.hover(pt(105., 100.), 6., &M), Hover::Handle(Handle::Center));
+        draw(&mut e, pt(105., 100.), pt(155., 120.)); // grab off-center: no jump
+        assert_eq!(e.items.len(), 1);
+        assert_eq!(center_of(&e, 0), pt(150., 120.));
+        assert!(e.undo());
+        assert_eq!(center_of(&e, 0), pt(100., 100.));
+        // Text tool does not grab it.
+        e.tool = Tool::Text;
+        assert_eq!(e.hover(pt(100., 100.), 6., &M), Hover::Nothing);
+    }
+
+    #[test]
+    fn style_buttons_change_selected_marker() {
+        let mut e = Editor::new();
+        e.tool = Tool::Marker;
+        draw(&mut e, pt(100., 100.), pt(100., 100.));
+        e.set_width(Width::Thick);
+        e.set_color(Color::Blue);
+        assert!(matches!(e.items[0].shape, Shape::Marker { style, .. }
+            if style == Style { color: Color::Blue, width: Width::Thick }));
+        assert!(e.undo());
+        assert!(matches!(e.items[0].shape, Shape::Marker { style, .. } if style.width == Width::Thick && style.color == Color::Red));
+        e.selected = None;
+        e.style = Style::default();
+        e.tool = Tool::Select;
+        e.press(pt(100., 100.), 6., &M);
+        e.release(pt(100., 100.));
+        assert_eq!(e.style.width, Width::Thick); // adopted from the marker
     }
 }

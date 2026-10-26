@@ -113,12 +113,12 @@ pub fn cursor_for(hover: Hover, tool: Tool, drawable: bool) -> &'static str {
         Hover::Handle(Handle::TopRight | Handle::BottomLeft) => "nesw-resize",
         Hover::Handle(Handle::Top | Handle::Bottom) => "ns-resize",
         Hover::Handle(Handle::Left | Handle::Right) => "ew-resize",
-        Hover::Handle(Handle::Start | Handle::End) | Hover::Item => "move",
+        Hover::Handle(Handle::Start | Handle::End | Handle::Center) | Hover::Item => "move",
         Hover::Nothing => match tool {
             _ if !drawable => "default",
             Tool::Select => "default",
             Tool::Text => "text",
-            Tool::Rect | Tool::Arrow | Tool::Redact => "crosshair",
+            Tool::Rect | Tool::Arrow | Tool::Redact | Tool::Marker => "crosshair",
         },
     }
 }

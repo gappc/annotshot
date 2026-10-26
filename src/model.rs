@@ -42,6 +42,15 @@ impl Width {
             Width::Thick => 8.0,
         }
     }
+
+    /// Radius of a numbered marker drawn at this width.
+    pub fn marker_radius(self) -> f64 {
+        match self {
+            Width::Thin => 12.0,
+            Width::Medium => 16.0,
+            Width::Thick => 22.0,
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -59,6 +68,9 @@ pub enum Shape {
     Arrow { start: Point, end: Point, style: Style },
     Text { origin: Point, text: String, color: Color },
     Redact { rect: Rect, color: Color },
+    /// Numbered circle. Its number is not stored: it is the marker's position
+    /// among the markers in the item list (see `editor::marker_number`).
+    Marker { center: Point, style: Style },
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -95,5 +107,13 @@ mod tests {
             [2.0, 4.0, 8.0]
         );
         assert_eq!(Width::default(), Width::Medium);
+    }
+
+    #[test]
+    fn marker_radius_per_width() {
+        assert_eq!(
+            [Width::Thin.marker_radius(), Width::Medium.marker_radius(), Width::Thick.marker_radius()],
+            [12.0, 16.0, 22.0]
+        );
     }
 }

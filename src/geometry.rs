@@ -5,6 +5,10 @@ pub fn bounds(shape: &Shape, m: &dyn TextMeasure) -> Rect {
     match shape {
         Shape::Rect { rect, .. } | Shape::Redact { rect, .. } => *rect,
         Shape::Arrow { start, end, .. } => Rect::from_points(*start, *end),
+        Shape::Marker { center, style } => {
+            let r = style.width.marker_radius();
+            Rect::new(center.x - r, center.y - r, center.x + r, center.y + r)
+        }
         Shape::Text { origin, text, .. } => {
             let s = m.text_size(text);
             Rect::from_origin_size(
@@ -27,6 +31,7 @@ pub fn hit_test(shape: &Shape, p: Point, tol: f64, m: &dyn TextMeasure) -> bool 
             let d = Line::new(*start, *end).nearest(p, 1e-6).distance_sq.sqrt();
             d <= tol + style.width.px() / 2.0
         }
+        Shape::Marker { center, style } => center.distance(p) <= style.width.marker_radius() + tol,
         Shape::Text { .. } | Shape::Redact { .. } => bounds(shape, m).inflate(tol, tol).contains(p),
     }
 }
@@ -44,6 +49,8 @@ pub enum Handle {
     Bottom,
     Left,
     Right,
+    /// Inside a marker: moves it.
+    Center,
 }
 
 pub fn handles(shape: &Shape) -> Vec<(Handle, Point)> {
@@ -55,7 +62,7 @@ pub fn handles(shape: &Shape) -> Vec<(Handle, Point)> {
             (Handle::BottomRight, Point::new(rect.x1, rect.y1)),
         ],
         Shape::Arrow { start, end, .. } => vec![(Handle::Start, *start), (Handle::End, *end)],
-        Shape::Text { .. } => vec![],
+        Shape::Text { .. } | Shape::Marker { .. } => vec![],
     }
 }
 
@@ -77,6 +84,9 @@ pub fn grab_at(shape: &Shape, p: Point, handle_size: f64, tol: f64) -> Option<Ha
     let (rect, reach) = match shape {
         Shape::Rect { rect, style } => (rect, tol + style.width.px() / 2.0),
         Shape::Redact { rect, .. } => (rect, tol),
+        Shape::Marker { center, style } => {
+            return (center.distance(p) <= style.width.marker_radius()).then_some(Handle::Center);
+        }
         _ => return None,
     };
     let along_x = p.x >= rect.x0 - reach && p.x <= rect.x1 + reach;
@@ -103,6 +113,7 @@ pub fn translate(shape: &mut Shape, d: Vec2) {
             *end += d;
         }
         Shape::Text { origin, .. } => *origin += d,
+        Shape::Marker { center, .. } => *center += d,
     }
 }
 
@@ -119,7 +130,7 @@ pub fn drag_handle(shape: &mut Shape, h: Handle, p: Point) {
                 Handle::Bottom => r.y1 = p.y,
                 Handle::Left => r.x0 = p.x,
                 Handle::Right => r.x1 = p.x,
-                Handle::Start | Handle::End => {}
+                Handle::Start | Handle::End | Handle::Center => {}
             }
             *rect = r.abs();
         }
@@ -128,7 +139,7 @@ pub fn drag_handle(shape: &mut Shape, h: Handle, p: Point) {
             Handle::End => *end = p,
             _ => {}
         },
-        Shape::Text { .. } => {}
+        Shape::Text { .. } | Shape::Marker { .. } => {}
     }
 }
 
@@ -148,6 +159,31 @@ mod tests {
 
     fn text_shape() -> Shape {
         Shape::Text { origin: Point::new(5., 5.), text: "hi".into(), color: Color::Red }
+    }
+
+    fn marker() -> Shape {
+        Shape::Marker { center: Point::new(50., 50.), style: Style::default() }
+    }
+
+    #[test]
+    fn marker_bounds_and_hit() {
+        // Medium marker: radius 16.
+        assert_eq!(bounds(&marker(), &M), Rect::new(34., 34., 66., 66.));
+        assert!(hit_test(&marker(), Point::new(50., 50.), 0., &M));
+        assert!(hit_test(&marker(), Point::new(70., 50.), 6., &M));
+        assert!(!hit_test(&marker(), Point::new(64., 64.), 0., &M)); // bounds corner, outside circle
+    }
+
+    #[test]
+    fn marker_grab_is_center_inside_circle() {
+        assert!(handles(&marker()).is_empty());
+        assert_eq!(grab_at(&marker(), Point::new(60., 55.), 8., 6.), Some(Handle::Center));
+        assert_eq!(grab_at(&marker(), Point::new(90., 50.), 8., 6.), None);
+        let mut m = marker();
+        drag_handle(&mut m, Handle::Center, Point::new(0., 0.)); // moving is the editor's job
+        assert_eq!(m, marker());
+        translate(&mut m, Vec2::new(3., 4.));
+        assert!(matches!(m, Shape::Marker { center, .. } if center == Point::new(53., 54.)));
     }
 
     #[test]

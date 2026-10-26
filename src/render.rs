@@ -107,6 +107,7 @@ pub fn draw_shape(cr: &cairo::Context, shape: &Shape, m: &PangoMeasure) {
             cr.move_to(origin.x + TEXT_PADDING, origin.y + TEXT_PADDING);
             pangocairo::functions::show_layout(cr, &make_layout(cr, text));
         }
+        Shape::Marker { .. } => {} // drawn in the next step
     }
     let _ = cr.restore();
 }
