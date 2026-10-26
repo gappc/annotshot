@@ -37,6 +37,7 @@ Annotshot then appears in the GNOME app launcher.
 
 ## Notes
 
+- The last drawn or clicked item stays selected. With any tool except Text, drag its corners, its sides (boxes and redactions) or an arrow's ends to resize it. The mouse cursor changes where that's possible. With Select, drag a selected box's inside to move it.
 - The file name's extension decides the format when saving: `.png` → PNG, `.jpg`/`.jpeg` → JPEG, no extension → `.jpg` is added. Choosing the PNG filter in the save dialog is not enough; change the name to end in `.png`.
 - Use **Redact** (a solid box) to hide sensitive data. Pixelating or blurring is not safe.
 - A copied image stays available after you close the window: Annotshot keeps running in the background until something else is copied.

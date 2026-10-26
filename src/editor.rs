@@ -1,4 +1,4 @@
-use crate::geometry::{drag_handle, handle_at, hit_test, translate, Handle};
+use crate::geometry::{drag_handle, grab_at, hit_test, translate, Handle};
 use crate::history::History;
 use crate::model::{Color, Item, ItemId, Shape, Style, TextMeasure, Width, MIN_SIZE};
 use kurbo::{Point, Rect, Vec2};
@@ -18,6 +18,16 @@ pub enum PressOutcome {
     Nothing,
     StartText(Point),
     EditText(ItemId),
+}
+
+/// What a press at a point would grab; drives the mouse cursor.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Hover {
+    Nothing,
+    /// A handle or side of the selected item (any tool except Text).
+    Handle(Handle),
+    /// An item that the Select tool would pick up and move.
+    Item,
 }
 
 enum Drag {
@@ -104,17 +114,47 @@ impl Editor {
         self.items.iter().position(|i| i.id == id)
     }
 
+    /// The handle or side of the selected item under `p`, if the current tool
+    /// may resize it (every tool but Text).
+    fn grab_selected(&self, p: Point, tol: f64) -> Option<(ItemId, Handle)> {
+        if self.tool == Tool::Text {
+            return None;
+        }
+        let it = self.selected.and_then(|id| self.items.iter().find(|i| i.id == id))?;
+        grab_at(&it.shape, p, tol * 8.0 / 6.0, tol).map(|h| (it.id, h))
+    }
+
+    /// The item the Select tool picks at `p`: the selected item anywhere inside
+    /// its bounds (so a selected box moves by its inside, while its sides resize
+    /// it), otherwise the topmost item hit.
+    fn select_target(&self, p: Point, tol: f64, m: &dyn TextMeasure) -> Option<ItemId> {
+        if let Some(it) = self.selected.and_then(|id| self.items.iter().find(|i| i.id == id))
+            && crate::geometry::bounds(&it.shape, m).contains(p)
+        {
+            return Some(it.id);
+        }
+        self.items.iter().rev().find(|i| hit_test(&i.shape, p, tol, m)).map(|i| i.id)
+    }
+
+    pub fn hover(&self, p: Point, tol: f64, m: &dyn TextMeasure) -> Hover {
+        if let Some((_, h)) = self.grab_selected(p, tol) {
+            return Hover::Handle(h);
+        }
+        if self.tool == Tool::Select && self.select_target(p, tol, m).is_some() {
+            return Hover::Item;
+        }
+        Hover::Nothing
+    }
+
     pub fn press(&mut self, p: Point, tol: f64, m: &dyn TextMeasure) -> PressOutcome {
         self.drag = Drag::None;
+        if let Some((id, handle)) = self.grab_selected(p, tol) {
+            self.drag = Drag::Handle { id, handle, before: self.items.clone() };
+            return PressOutcome::Nothing;
+        }
         match self.tool {
             Tool::Select => {
-                if let Some(it) = self.selected.and_then(|id| self.items.iter().find(|i| i.id == id))
-                    && let Some(handle) = handle_at(&it.shape, p, tol * 8.0 / 6.0)
-                {
-                    self.drag = Drag::Handle { id: it.id, handle, before: self.items.clone() };
-                    return PressOutcome::Nothing;
-                }
-                let hit = self.items.iter().rev().find(|i| hit_test(&i.shape, p, tol, m)).map(|i| i.id);
+                let hit = self.select_target(p, tol, m);
                 self.selected = hit;
                 self.adopt_selected_style();
                 if let Some(id) = hit {
@@ -335,6 +375,57 @@ mod tests {
     }
     const M: FixedMeasure = FixedMeasure(Size::new(20., 16.));
 
+    #[test]
+    fn drawing_tool_resizes_selected_box_via_corner_and_side() {
+        let mut e = Editor::new();
+        draw(&mut e, pt(10., 10.), pt(110., 60.)); // selected after drawing
+        draw(&mut e, pt(110., 60.), pt(150., 90.)); // corner drag with Box tool
+        assert_eq!(e.items.len(), 1);
+        assert_eq!(rect_of(&e, 0), Rect::new(10., 10., 150., 90.));
+        draw(&mut e, pt(80., 10.), pt(80., 0.)); // top side
+        assert_eq!(rect_of(&e, 0), Rect::new(10., 0., 150., 90.));
+        assert_eq!(e.items.len(), 1);
+        e.undo();
+        assert_eq!(rect_of(&e, 0), Rect::new(10., 10., 150., 90.));
+    }
+
+    #[test]
+    fn drawing_tool_moves_selected_arrow_end() {
+        let mut e = Editor::new();
+        e.tool = Tool::Arrow;
+        draw(&mut e, pt(0., 0.), pt(100., 0.));
+        draw(&mut e, pt(0., 0.), pt(20., 30.)); // start point, with Arrow tool
+        assert_eq!(e.items.len(), 1);
+        assert!(matches!(e.items[0].shape, Shape::Arrow { start, end, .. }
+            if start == pt(20., 30.) && end == pt(100., 0.)));
+    }
+
+    #[test]
+    fn drawing_tool_off_handles_still_draws_new_shape() {
+        let mut e = Editor::new();
+        draw(&mut e, pt(10., 10.), pt(110., 60.));
+        draw(&mut e, pt(200., 200.), pt(250., 250.));
+        assert_eq!(e.items.len(), 2);
+        // Unselected box: its corner doesn't resize, a new box is drawn.
+        e.selected = None;
+        draw(&mut e, pt(110., 60.), pt(130., 80.));
+        assert_eq!(e.items.len(), 3);
+    }
+
+    #[test]
+    fn hover_reports_grab_targets() {
+        let mut e = Editor::new();
+        assert_eq!(e.hover(pt(10., 10.), 6., &M), Hover::Nothing);
+        draw(&mut e, pt(10., 10.), pt(110., 60.));
+        assert_eq!(e.hover(pt(110., 60.), 6., &M), Hover::Handle(Handle::BottomRight));
+        assert_eq!(e.hover(pt(10., 35.), 6., &M), Hover::Handle(Handle::Left));
+        assert_eq!(e.hover(pt(60., 35.), 6., &M), Hover::Nothing); // Box tool, interior
+        e.tool = Tool::Select;
+        e.selected = None;
+        assert_eq!(e.hover(pt(10., 35.), 6., &M), Hover::Item); // unselected item under Select
+        assert_eq!(e.hover(pt(300., 300.), 6., &M), Hover::Nothing);
+    }
+
     fn pt(x: f64, y: f64) -> Point {
         Point::new(x, y)
     }
@@ -408,11 +499,12 @@ mod tests {
         let mut e = Editor::new();
         draw(&mut e, pt(10., 10.), pt(110., 60.));
         e.tool = Tool::Select;
-        e.press(pt(10., 30.), 6., &M);
-        e.drag_to(pt(20., 35.));
-        e.drag_to(pt(30., 40.));
-        e.drag_to(pt(40., 50.));
-        e.release(pt(40., 50.));
+        // The box is selected after drawing: its inside moves it (its sides resize).
+        e.press(pt(60., 30.), 6., &M);
+        e.drag_to(pt(70., 35.));
+        e.drag_to(pt(80., 40.));
+        e.drag_to(pt(90., 50.));
+        e.release(pt(90., 50.));
         assert_eq!(rect_of(&e, 0), Rect::new(40., 30., 140., 80.));
         assert!(e.undo());
         assert_eq!(rect_of(&e, 0), Rect::new(10., 10., 110., 60.));

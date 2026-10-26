@@ -7,7 +7,8 @@ use gtk::cairo;
 use gtk::prelude::*;
 use kurbo::{Point, Size};
 
-use crate::editor::{Editor, PressOutcome, Tool};
+use crate::editor::{Editor, Hover, PressOutcome, Tool};
+use crate::geometry::Handle;
 use crate::model::ItemId;
 use crate::render::{PangoMeasure, draw_items, draw_selection, draw_shape};
 use crate::text_edit::TextEditor;
@@ -103,6 +104,25 @@ fn finish_drag(state: &SharedCanvas, drag: &Cell<Option<ActiveDrag>>) -> bool {
     }
 }
 
+/// Cursor name for what a press would do: resize arrows over a selected item's
+/// corners and sides, a move cursor over arrow ends and over items the Select
+/// tool would move. `drawable`: the pointer is over the image (no image → false).
+pub fn cursor_for(hover: Hover, tool: Tool, drawable: bool) -> &'static str {
+    match hover {
+        Hover::Handle(Handle::TopLeft | Handle::BottomRight) => "nwse-resize",
+        Hover::Handle(Handle::TopRight | Handle::BottomLeft) => "nesw-resize",
+        Hover::Handle(Handle::Top | Handle::Bottom) => "ns-resize",
+        Hover::Handle(Handle::Left | Handle::Right) => "ew-resize",
+        Hover::Handle(Handle::Start | Handle::End) | Hover::Item => "move",
+        Hover::Nothing => match tool {
+            _ if !drawable => "default",
+            Tool::Select => "default",
+            Tool::Text => "text",
+            Tool::Rect | Tool::Arrow | Tool::Redact => "crosshair",
+        },
+    }
+}
+
 /// Install the draw func and pointer gestures. `changed` is called after any
 /// editor change that may affect the toolbar (selection, history). Presses
 /// commit an open text editor first and open it for the Text tool.
@@ -139,10 +159,12 @@ pub fn attach(
                     // there so handles on the edge stay reachable.
                     let img = st.image.as_ref()?;
                     let size = Size::new(img.width() as f64, img.height() as f64);
-                    if st.editor.tool != Tool::Select && !inside_image(size, p) {
+                    let tol = HIT_TOLERANCE / view.scale;
+                    let grabs = matches!(st.editor.hover(p, tol, &st.measure), Hover::Handle(_));
+                    if st.editor.tool != Tool::Select && !grabs && !inside_image(size, p) {
                         return None;
                     }
-                    let outcome = st.editor.press(p, HIT_TOLERANCE / view.scale, &st.measure);
+                    let outcome = st.editor.press(p, tol, &st.measure);
                     drag.set(Some(ActiveDrag { start: Point::new(x, y), last: p, view }));
                     Some((outcome, view))
                 })
@@ -195,6 +217,29 @@ pub fn attach(
     });
     area.add_controller(gesture);
 
+    // Cursor feedback; kept unchanged while a drag is in progress.
+    let motion = gtk::EventControllerMotion::new();
+    motion.connect_motion({
+        let (state, drag, area) = (state.clone(), drag.clone(), area.clone());
+        move |_, x, y| {
+            if drag.get().is_some() {
+                return;
+            }
+            let st = state.borrow();
+            let name = match (st.view(area.width() as f64, area.height() as f64), st.image.as_ref()) {
+                (Some(view), Some(img)) => {
+                    let p = view.to_image(Point::new(x, y));
+                    let size = Size::new(img.width() as f64, img.height() as f64);
+                    let hover = st.editor.hover(p, HIT_TOLERANCE / view.scale, &st.measure);
+                    cursor_for(hover, st.editor.tool, inside_image(size, p))
+                }
+                _ => "default",
+            };
+            area.set_cursor_from_name(Some(name));
+        }
+    });
+    area.add_controller(motion);
+
     let click = gtk::GestureClick::new();
     click.set_button(gtk::gdk::BUTTON_PRIMARY);
     click.connect_pressed({
@@ -240,6 +285,24 @@ pub fn attach(
 mod tests {
     use super::*;
     use crate::model::Color;
+
+    #[test]
+    fn cursor_shows_what_a_press_would_do() {
+        use crate::editor::Hover;
+        use crate::geometry::Handle;
+        let h = |x| cursor_for(Hover::Handle(x), Tool::Rect, true);
+        assert_eq!(h(Handle::TopLeft), "nwse-resize");
+        assert_eq!(h(Handle::BottomRight), "nwse-resize");
+        assert_eq!(h(Handle::TopRight), "nesw-resize");
+        assert_eq!(h(Handle::Left), "ew-resize");
+        assert_eq!(h(Handle::Bottom), "ns-resize");
+        assert_eq!(h(Handle::End), "move");
+        assert_eq!(cursor_for(Hover::Item, Tool::Select, true), "move");
+        assert_eq!(cursor_for(Hover::Nothing, Tool::Rect, true), "crosshair");
+        assert_eq!(cursor_for(Hover::Nothing, Tool::Rect, false), "default");
+        assert_eq!(cursor_for(Hover::Nothing, Tool::Text, true), "text");
+        assert_eq!(cursor_for(Hover::Nothing, Tool::Select, true), "default");
+    }
 
     fn pixel(s: &mut cairo::ImageSurface, x: usize, y: usize) -> (u8, u8, u8) {
         s.flush();

@@ -39,6 +39,11 @@ pub enum Handle {
     BottomRight,
     Start,
     End,
+    // Sides of boxes and redactions: grabbed anywhere along the line.
+    Top,
+    Bottom,
+    Left,
+    Right,
 }
 
 pub fn handles(shape: &Shape) -> Vec<(Handle, Point)> {
@@ -62,6 +67,34 @@ pub fn handle_at(shape: &Shape, p: Point, size: f64) -> Option<Handle> {
         .map(|(h, _)| h)
 }
 
+/// What part of `shape` can be dragged at `p`: a handle (corner or arrow end,
+/// within a `handle_size` square) first, else a side of a box or redaction
+/// (within `tol` of the line, plus half the stroke for boxes).
+pub fn grab_at(shape: &Shape, p: Point, handle_size: f64, tol: f64) -> Option<Handle> {
+    if let Some(h) = handle_at(shape, p, handle_size) {
+        return Some(h);
+    }
+    let (rect, reach) = match shape {
+        Shape::Rect { rect, style } => (rect, tol + style.width.px() / 2.0),
+        Shape::Redact { rect, .. } => (rect, tol),
+        _ => return None,
+    };
+    let along_x = p.x >= rect.x0 - reach && p.x <= rect.x1 + reach;
+    let along_y = p.y >= rect.y0 - reach && p.y <= rect.y1 + reach;
+    let near = |a: f64, b: f64| (a - b).abs() <= reach;
+    if along_x && near(p.y, rect.y0) {
+        Some(Handle::Top)
+    } else if along_x && near(p.y, rect.y1) {
+        Some(Handle::Bottom)
+    } else if along_y && near(p.x, rect.x0) {
+        Some(Handle::Left)
+    } else if along_y && near(p.x, rect.x1) {
+        Some(Handle::Right)
+    } else {
+        None
+    }
+}
+
 pub fn translate(shape: &mut Shape, d: Vec2) {
     match shape {
         Shape::Rect { rect, .. } | Shape::Redact { rect, .. } => *rect = *rect + d,
@@ -82,6 +115,10 @@ pub fn drag_handle(shape: &mut Shape, h: Handle, p: Point) {
                 Handle::TopRight => (r.x1, r.y0) = (p.x, p.y),
                 Handle::BottomLeft => (r.x0, r.y1) = (p.x, p.y),
                 Handle::BottomRight => (r.x1, r.y1) = (p.x, p.y),
+                Handle::Top => r.y0 = p.y,
+                Handle::Bottom => r.y1 = p.y,
+                Handle::Left => r.x0 = p.x,
+                Handle::Right => r.x1 = p.x,
                 Handle::Start | Handle::End => {}
             }
             *rect = r.abs();
@@ -111,6 +148,38 @@ mod tests {
 
     fn text_shape() -> Shape {
         Shape::Text { origin: Point::new(5., 5.), text: "hi".into(), color: Color::Red }
+    }
+
+    #[test]
+    fn grab_prefers_corners_then_sides() {
+        let s = Shape::Rect { rect: Rect::new(10., 10., 110., 60.), style: Style::default() };
+        assert_eq!(grab_at(&s, Point::new(11., 9.), 8., 6.), Some(Handle::TopLeft));
+        assert_eq!(grab_at(&s, Point::new(60., 12.), 8., 6.), Some(Handle::Top));
+        assert_eq!(grab_at(&s, Point::new(60., 57.), 8., 6.), Some(Handle::Bottom));
+        assert_eq!(grab_at(&s, Point::new(8., 35.), 8., 6.), Some(Handle::Left));
+        assert_eq!(grab_at(&s, Point::new(113., 35.), 8., 6.), Some(Handle::Right));
+        assert_eq!(grab_at(&s, Point::new(60., 35.), 8., 6.), None); // interior
+        assert_eq!(grab_at(&s, Point::new(60., 80.), 8., 6.), None); // far below
+    }
+
+    #[test]
+    fn redact_sides_grabbable_arrow_and_text_only_handles() {
+        let r = Shape::Redact { rect: Rect::new(0., 0., 50., 50.), color: Color::Black };
+        assert_eq!(grab_at(&r, Point::new(25., 49.), 8., 6.), Some(Handle::Bottom));
+        let a = Shape::Arrow { start: Point::new(0., 0.), end: Point::new(100., 0.), style: Style::default() };
+        assert_eq!(grab_at(&a, Point::new(99., 2.), 8., 6.), Some(Handle::End));
+        assert_eq!(grab_at(&a, Point::new(50., 0.), 8., 6.), None);
+        assert_eq!(grab_at(&text_shape(), Point::new(5., 5.), 8., 6.), None);
+    }
+
+    #[test]
+    fn dragging_a_side_moves_only_that_side() {
+        let mut s = Shape::Rect { rect: Rect::new(10., 10., 50., 50.), style: Style::default() };
+        drag_handle(&mut s, Handle::Right, Point::new(80., 999.));
+        drag_handle(&mut s, Handle::Top, Point::new(-5., 0.));
+        assert_eq!(s, Shape::Rect { rect: Rect::new(10., 0., 80., 50.), style: Style::default() });
+        drag_handle(&mut s, Handle::Left, Point::new(100., 0.)); // past the right side
+        assert_eq!(s, Shape::Rect { rect: Rect::new(80., 0., 100., 50.), style: Style::default() });
     }
 
     #[test]
