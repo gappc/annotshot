@@ -11,6 +11,7 @@ pub enum Color {
 }
 
 impl Color {
+    #[cfg_attr(not(test), allow(dead_code))] // only the tests iterate the palette
     pub const ALL: [Color; 5] = [Color::Red, Color::Yellow, Color::Green, Color::Blue, Color::Black];
 
     pub fn rgb(self) -> (f64, f64, f64) {
