@@ -69,7 +69,7 @@ pub enum Shape {
     Text { origin: Point, text: String, color: Color },
     Redact { rect: Rect, color: Color },
     /// Numbered circle. Its number is not stored: it is the marker's position
-    /// among the markers in the item list (see `editor::marker_number`).
+    /// among the markers in the item list (see `render::draw_items`).
     Marker { center: Point, style: Style },
 }
 

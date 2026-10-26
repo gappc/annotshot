@@ -1,6 +1,6 @@
 use crate::geometry::{bounds, handles};
 use crate::model::{
-    Item, ItemId, Shape, TextMeasure, TEXT_BORDER, TEXT_FONT_PX, TEXT_PADDING,
+    Color, Item, ItemId, Shape, TextMeasure, TEXT_BORDER, TEXT_FONT_PX, TEXT_PADDING,
 };
 use gtk::cairo;
 use gtk::pango;
@@ -28,6 +28,15 @@ impl TextMeasure for PangoMeasure {
 }
 
 fn make_layout(cr: &cairo::Context, text: &str) -> pango::Layout {
+    sized_layout(cr, text, TEXT_FONT_PX)
+}
+
+/// Layout for a marker's number; the font size equals the circle's radius.
+fn marker_layout(cr: &cairo::Context, number: u32, radius: f64) -> pango::Layout {
+    sized_layout(cr, &number.to_string(), radius)
+}
+
+fn sized_layout(cr: &cairo::Context, text: &str, font_px: f64) -> pango::Layout {
     let layout = pangocairo::functions::create_layout(cr);
     // Unhinted metrics scale linearly, so text measured on an identity context
     // fits the same box when drawn under the canvas view scale.
@@ -38,7 +47,7 @@ fn make_layout(cr: &cairo::Context, text: &str) -> pango::Layout {
         layout.context_changed();
     }
     let mut font = pango::FontDescription::from_string("Sans Bold");
-    font.set_absolute_size(TEXT_FONT_PX * pango::SCALE as f64);
+    font.set_absolute_size(font_px * pango::SCALE as f64);
     layout.set_font_description(Some(&font));
     layout.set_text(text);
     layout
@@ -53,7 +62,8 @@ fn rect_path(cr: &cairo::Context, r: kurbo::Rect) {
     cr.rectangle(r.x0, r.y0, r.width(), r.height());
 }
 
-pub fn draw_shape(cr: &cairo::Context, shape: &Shape, m: &PangoMeasure) {
+/// Draw one shape. `number` is the label of a marker and ignored otherwise.
+pub fn draw_shape(cr: &cairo::Context, shape: &Shape, number: u32, m: &PangoMeasure) {
     let _ = cr.save();
     cr.set_line_join(cairo::LineJoin::Round);
     cr.set_line_cap(cairo::LineCap::Round);
@@ -107,14 +117,37 @@ pub fn draw_shape(cr: &cairo::Context, shape: &Shape, m: &PangoMeasure) {
             cr.move_to(origin.x + TEXT_PADDING, origin.y + TEXT_PADDING);
             pangocairo::functions::show_layout(cr, &make_layout(cr, text));
         }
-        Shape::Marker { .. } => {} // drawn in the next step
+        Shape::Marker { center, style } => {
+            let r = style.width.marker_radius();
+            set_color(cr, style.color);
+            cr.arc(center.x, center.y, r, 0.0, std::f64::consts::TAU);
+            let _ = cr.fill();
+            // Dark digits on yellow, white on the other colors.
+            match style.color {
+                Color::Yellow => cr.set_source_rgb(0.0, 0.0, 0.0),
+                _ => cr.set_source_rgb(1.0, 1.0, 1.0),
+            }
+            let layout = marker_layout(cr, number, r);
+            let (ink, _) = layout.extents();
+            let s = pango::SCALE as f64;
+            let (x, y) = (ink.x() as f64 / s, ink.y() as f64 / s);
+            let (w, h) = (ink.width() as f64 / s, ink.height() as f64 / s);
+            cr.move_to(center.x - x - w / 2.0, center.y - y - h / 2.0);
+            pangocairo::functions::show_layout(cr, &layout);
+        }
     }
     let _ = cr.restore();
 }
 
 pub fn draw_items(cr: &cairo::Context, items: &[Item], skip: Option<ItemId>, m: &PangoMeasure) {
-    for item in items.iter().filter(|i| Some(i.id) != skip) {
-        draw_shape(cr, &item.shape, m);
+    let mut markers = 0;
+    for item in items {
+        if let Shape::Marker { .. } = item.shape {
+            markers += 1;
+        }
+        if Some(item.id) != skip {
+            draw_shape(cr, &item.shape, markers, m);
+        }
     }
 }
 
@@ -172,7 +205,7 @@ mod tests {
         let s = white_surface();
         {
             let cr = cairo::Context::new(&s).unwrap();
-            draw_shape(&cr, &shape, &PangoMeasure::new());
+            draw_shape(&cr, &shape, 1, &PangoMeasure::new());
         }
         s.flush();
         s
@@ -295,5 +328,81 @@ mod tests {
         let m = PangoMeasure::new();
         assert!(m.text_size("Hello world").width > m.text_size("Hi").width);
         assert!(m.text_size("a\nb").height > m.text_size("a").height);
+    }
+
+    fn count(s: &mut cairo::ImageSurface, x0: usize, y0: usize, x1: usize, y1: usize, f: impl Fn((u8, u8, u8)) -> bool) -> usize {
+        let mut n = 0;
+        for y in y0..y1 {
+            for x in x0..x1 {
+                if f(pixel(s, x, y)) {
+                    n += 1;
+                }
+            }
+        }
+        n
+    }
+
+    fn marker(x: f64, y: f64, color: Color, width: Width) -> Shape {
+        Shape::Marker { center: Point::new(x, y), style: Style { color, width } }
+    }
+
+    #[test]
+    fn marker_fills_circle_with_white_number() {
+        let mut s = render(marker(100., 100., Color::Red, Width::Thick));
+        assert!(near(pixel(&mut s, 100, 81), RED)); // inside, above the digit
+        assert!(near(pixel(&mut s, 81, 100), RED)); // inside, left of the digit
+        assert_eq!(pixel(&mut s, 125, 100), WHITE); // outside
+        assert_eq!(pixel(&mut s, 117, 117), WHITE); // bounds corner, outside the circle
+        let digit = count(&mut s, 92, 90, 108, 110, |p| p.0 > 240 && p.1 > 240 && p.2 > 240);
+        assert!(digit > 10, "white digit pixels: {digit}");
+    }
+
+    #[test]
+    fn yellow_marker_uses_dark_number() {
+        let mut s = render(marker(100., 100., Color::Yellow, Width::Thick));
+        let dark = count(&mut s, 92, 90, 108, 110, |p| p.0 < 80 && p.1 < 80 && p.2 < 80);
+        assert!(dark > 10, "dark digit pixels: {dark}");
+    }
+
+    #[test]
+    fn two_digit_numbers_fit_the_circle() {
+        let s = cairo::ImageSurface::create(cairo::Format::ARgb32, 10, 10).unwrap();
+        let cr = cairo::Context::new(&s).unwrap();
+        for w in [Width::Thin, Width::Medium, Width::Thick] {
+            let r = w.marker_radius();
+            let (tw, th) = marker_layout(&cr, 88, r).pixel_size();
+            assert!((tw as f64) < 2.0 * r * 0.85, "{w:?}: text {tw} wide, radius {r}");
+            assert!((th as f64) < 2.0 * r, "{w:?}: text {th} high, radius {r}");
+        }
+    }
+
+    fn region(s: &mut cairo::ImageSurface, x0: usize, y0: usize, x1: usize, y1: usize) -> Vec<(u8, u8, u8)> {
+        (y0..y1).flat_map(|y| (x0..x1).map(move |x| (x, y))).map(|(x, y)| pixel(s, x, y)).collect()
+    }
+
+    #[test]
+    fn draw_items_numbers_markers_in_order() {
+        let red_box = Shape::Redact { rect: Rect::new(0., 0., 10., 10.), color: Color::Red };
+        let items = [
+            Item { id: 1, shape: marker(40., 40., Color::Red, Width::Thick) },
+            Item { id: 2, shape: red_box },
+            Item { id: 3, shape: marker(140., 140., Color::Red, Width::Thick) },
+        ];
+        let mut listed = white_surface();
+        {
+            let cr = cairo::Context::new(&listed).unwrap();
+            draw_items(&cr, &items, None, &PangoMeasure::new());
+        }
+        let expect = |n: u32| {
+            let mut s = white_surface();
+            {
+                let cr = cairo::Context::new(&s).unwrap();
+                draw_shape(&cr, &items[2].shape, n, &PangoMeasure::new());
+            }
+            region(&mut s, 120, 120, 160, 160)
+        };
+        let got = region(&mut listed, 120, 120, 160, 160);
+        assert_eq!(got, expect(2));
+        assert_ne!(got, expect(3));
     }
 }

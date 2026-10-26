@@ -1,6 +1,6 @@
 # Annotshot
 
-A small GNOME app for annotating screenshots: paste an image from the clipboard, mark it up with boxes, arrows, text and redactions, then copy or save it.
+A small GNOME app for annotating screenshots: paste an image from the clipboard, mark it up with boxes, arrows, text, numbered markers and redactions, then copy or save it.
 
 ## Prerequisites
 
@@ -26,6 +26,7 @@ Annotshot then appears in the GNOME app launcher.
 | A | Arrow |
 | T | Text |
 | X | Redact |
+| N | Numbered marker |
 | Ctrl+V | Paste |
 | Ctrl+C | Copy |
 | Ctrl+S | Save |
@@ -37,8 +38,9 @@ Annotshot then appears in the GNOME app launcher.
 
 ## Notes
 
-- The last drawn or clicked item stays selected. With any tool except Text, drag its corners, its sides (boxes and redactions) or an arrow's ends to resize it. The mouse cursor changes where that's possible. With Select, drag a selected box's inside to move it.
+- The last drawn or clicked item stays selected. With any tool except Text, drag its corners, its sides (boxes and redactions) or an arrow's ends to resize it. The mouse cursor changes where that's possible. With Select, drag a selected box's inside to move it. A selected marker moves by dragging its inside, with any tool except Text.
 - The file name's extension decides the format when saving: `.png` → PNG, `.jpg`/`.jpeg` → JPEG, no extension → `.jpg` is added. Choosing the PNG filter in the save dialog is not enough; change the name to end in `.png`.
+- **Markers** count 1, 2, 3 … in the order you place them. Deleting one renumbers the later ones. The line width sets their size.
 - Use **Redact** (a solid box) to hide sensitive data. Pixelating or blurring is not safe.
 - A copied image stays available after you close the window: Annotshot keeps running in the background until something else is copied.
 

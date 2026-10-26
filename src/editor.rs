@@ -14,23 +14,6 @@ pub enum Tool {
     Marker,
 }
 
-/// The number shown in marker `id`: its 1-based position among the markers in
-/// `items`. Deleting one renumbers the later ones; `None` for other items.
-pub fn marker_number(items: &[Item], id: ItemId) -> Option<u32> {
-    let mut n = 0;
-    for item in items {
-        if let Shape::Marker { .. } = item.shape {
-            n += 1;
-            if item.id == id {
-                return Some(n);
-            }
-        } else if item.id == id {
-            return None;
-        }
-    }
-    None
-}
-
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum PressOutcome {
     Nothing,
@@ -791,6 +774,22 @@ mod tests {
             Shape::Marker { center, .. } => center,
             ref s => panic!("not a marker: {s:?}"),
         }
+    }
+
+    /// Number shown in marker `id` (same rule as `render::draw_items`).
+    fn marker_number(items: &[Item], id: ItemId) -> Option<u32> {
+        let mut n = 0;
+        for item in items {
+            if let Shape::Marker { .. } = item.shape {
+                n += 1;
+                if item.id == id {
+                    return Some(n);
+                }
+            } else if item.id == id {
+                return None;
+            }
+        }
+        None
     }
 
     fn numbers(e: &Editor) -> Vec<Option<u32>> {

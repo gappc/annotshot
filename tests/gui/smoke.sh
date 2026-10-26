@@ -1,6 +1,7 @@
 #!/bin/bash
 # Example run: paste a sample screenshot, type a two-line label, draw a box and
-# resize it by a corner and a side, draw an arrow and move its start point.
+# resize it by a corner and a side, draw an arrow and move its start point,
+# place numbered markers, move one, delete one and undo.
 # Screenshots land in tests/gui/out/; look at them to judge the result.
 set -euo pipefail
 HERE=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
@@ -33,5 +34,18 @@ g key a
 g drag 300 560 520 520               # new arrow
 g drag 300 560 350 600               # move its start point
 g shot 05-arrow 230,180,760,450
+
+g key n
+g click 760 250                      # markers 1, 2, 3
+g click 820 300
+g click 880 250
+g drag 880 250 900 330               # drag the selected marker 3 down (Marker tool)
+g shot 06-markers 230,180,760,450
+g key v
+g click 820 300                      # select marker 2 and delete it: 3 becomes 2
+g key Delete
+g shot 07-marker-deleted 230,180,760,450
+g key ctrl+z                         # back to 1, 2, 3
+g shot 08-marker-undone 230,180,760,450
 
 echo "screenshots in $HERE/out/"

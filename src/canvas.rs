@@ -72,7 +72,7 @@ pub fn draw(st: &CanvasState, cr: &cairo::Context, width: i32, height: i32) {
     let ed = &st.editor;
     draw_items(cr, &ed.items, st.editing, &st.measure);
     if let Some(shape) = ed.provisional() {
-        draw_shape(cr, shape, &st.measure);
+        draw_shape(cr, shape, ed.next_marker_number(), &st.measure);
     }
     let _ = cr.restore();
 
@@ -297,6 +297,8 @@ mod tests {
         assert_eq!(h(Handle::Left), "ew-resize");
         assert_eq!(h(Handle::Bottom), "ns-resize");
         assert_eq!(h(Handle::End), "move");
+        assert_eq!(h(Handle::Center), "move");
+        assert_eq!(cursor_for(Hover::Nothing, Tool::Marker, true), "crosshair");
         assert_eq!(cursor_for(Hover::Item, Tool::Select, true), "move");
         assert_eq!(cursor_for(Hover::Nothing, Tool::Rect, true), "crosshair");
         assert_eq!(cursor_for(Hover::Nothing, Tool::Rect, false), "default");

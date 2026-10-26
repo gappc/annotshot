@@ -105,6 +105,7 @@ the clipboard. Annotshot never captures anything itself.
 | Arrow | A | Drag from start to end; arrowhead at the end point. |
 | Text | T | Click to place a label and start typing; edits in place. Enter inserts a new line (multi-line labels, no automatic wrapping). Escape or clicking elsewhere finishes. Empty labels are discarded. *(Designer's call.)* |
 | Redact | X *(builder may choose another letter)* | Drag to draw a solid, opaque filled box (uses the current color; black should be among the colors). |
+| Marker | N | Click to place a numbered circle (1, 2, 3 …), centered on the click; drag before releasing to position it. *(Added 2026-10-26, see "Numbered markers".)* |
 
 - After drawing an item, the current tool stays active so several items can be
   drawn in a row.
@@ -171,11 +172,24 @@ the clipboard. Annotshot never captures anything itself.
   file and icon into the user's home (`~/.local/bin`,
   `~/.local/share/applications`, `~/.local/share/icons`). No root needed.
 
+### Numbered markers (added 2026-10-26, agreed with the user)
+
+- Look: a filled circle in the current color with a bold number in the
+  middle: white, or black on yellow so it stays readable.
+- Size follows the line width: radius 12 / 16 / 22 image pixels for thin /
+  medium / thick; the font size equals the radius. Changing the width of a
+  selected marker resizes it.
+- Numbering: markers count 1, 2, 3 … in the order they were placed, with no
+  gaps. Deleting marker 2 turns 3 into 2; undo brings the old numbers back.
+  The number is never stored or typed; it comes from the order.
+- A selected marker can be dragged by its inside with every tool except Text
+  (move cursor). It has no resize handles.
+
 ## Roadmap after the first version
 
 In this order (user said these are sometimes required, so high priority):
 
-1. Numbered markers (circles with 1, 2, 3 … that auto-increment).
+1. ~~Numbered markers~~ — done, see "Numbered markers".
 2. Highlight (semi-transparent marker over an area, e.g. yellow).
 3. Pixelate / blur as a *visual* effect. Pixelate needs no extra crates; smooth
    blur would add `image`/`imageproc`. Must be clearly separate from Redact,
@@ -218,3 +232,6 @@ Wayland desktop (clipboard after closing, save dialog, 125 % scaling).
 - **PNG** is written via gdk-pixbuf (no alpha; screenshots are opaque).
 - **App ID** `net.gappc.Annotshot`; Redact shortcut X; default tool Box;
   label border drawn inside the label box.
+- **Markers:** the number is derived while drawing (`render::draw_items`
+  counts markers in item order), so it can't get out of step with deletes,
+  undo or redo. The marker being placed shows the next number.
