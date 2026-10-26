@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=Annotshot
+Comment=Annotate screenshots from the clipboard
+Exec=@BINDIR@/annotshot
+Icon=net.gappc.Annotshot
+Terminal=false
+Categories=Graphics;Utility;
+Keywords=screenshot;annotate;arrow;markup;
+StartupNotify=true

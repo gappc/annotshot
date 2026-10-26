@@ -371,6 +371,7 @@ impl SimpleComponent for AppModel {
         adw::ApplicationWindow {
             #[watch]
             set_title: Some(&files::window_title(model.file.as_deref(), model.dirty)),
+            set_icon_name: Some("net.gappc.Annotshot"),
             set_default_size: (1100, 750),
 
             adw::ToolbarView {
