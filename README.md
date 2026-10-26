@@ -45,10 +45,10 @@ Annotshot then appears in the GNOME app launcher.
 | R | Box |
 | A | Arrow |
 | T | Text |
-| X | Redact |
 | N | Numbered marker |
 | H | Highlight |
 | P | Pixelate |
+| X | Redact |
 | Ctrl+V | Paste |
 | Ctrl+C | Copy |
 | Ctrl+S | Save |

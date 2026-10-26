@@ -490,17 +490,6 @@ impl SimpleComponent for AppModel {
                                 } @h_text,
                             },
                             gtk::ToggleButton {
-                                set_label: "Redact",
-                                set_group: Some(&tool_select),
-                                set_tooltip_text: Some("Redact (X)"),
-                                #[watch]
-                                #[block_signal(h_redact)]
-                                set_active: model.tool == Tool::Redact,
-                                connect_toggled[sender] => move |b| if b.is_active() {
-                                    sender.input(AppMsg::SetTool(Tool::Redact));
-                                } @h_redact,
-                            },
-                            gtk::ToggleButton {
                                 set_label: "Marker",
                                 set_group: Some(&tool_select),
                                 set_tooltip_text: Some("Numbered marker (N)"),
@@ -532,6 +521,17 @@ impl SimpleComponent for AppModel {
                                 connect_toggled[sender] => move |b| if b.is_active() {
                                     sender.input(AppMsg::SetTool(Tool::Pixelate));
                                 } @h_pixelate,
+                            },
+                            gtk::ToggleButton {
+                                set_label: "Redact",
+                                set_group: Some(&tool_select),
+                                set_tooltip_text: Some("Redact (X)"),
+                                #[watch]
+                                #[block_signal(h_redact)]
+                                set_active: model.tool == Tool::Redact,
+                                connect_toggled[sender] => move |b| if b.is_active() {
+                                    sender.input(AppMsg::SetTool(Tool::Redact));
+                                } @h_redact,
                             },
 
                             gtk::Separator {},

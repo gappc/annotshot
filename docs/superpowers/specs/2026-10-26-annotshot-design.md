@@ -75,8 +75,8 @@ the clipboard. Annotshot never captures anything itself.
   - centre: title (app name, plus file name once saved; unsaved marker)
   - right: Copy, Save… (suggested-action style)
 - Left: a vertical tool column:
-  Select, Box, Arrow, Text, Redact — then the current color and line width.
-  Later tools (markers, highlight, pixelate/blur) are added to this column.
+  Select, Box, Arrow, Text, Marker, Highlight, Pixelate, Redact — then the
+  current color and line width (order changed by the user on 2026-10-26).
 - Rest of the window: the image canvas.
 
 ### Start state
