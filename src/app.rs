@@ -4,10 +4,10 @@ use relm4::prelude::*;
 const CSS: &str = "
 button.swatch { min-width: 24px; min-height: 24px; padding: 0; border-radius: 12px; }
 button.swatch-red { background: #e01b24; }
-button.swatch-orange { background: #ff7800; }
 button.swatch-yellow { background: #f6d32d; }
 button.swatch-green { background: #33d17a; }
 button.swatch-blue { background: #3584e4; }
+button.swatch-black { background: #000000; }
 button.swatch:checked { border: 2px solid @window_fg_color; }
 ";
 
@@ -35,7 +35,7 @@ impl SimpleComponent for AppModel {
                     },
                     pack_start = &gtk::Button {
                         set_icon_name: "edit-redo-symbolic",
-                        set_tooltip_text: Some("Redo (Ctrl+Shift+Z)"),
+                        set_tooltip_text: Some("Redo (Ctrl+Y)"),
                     },
                     pack_end = &gtk::Button {
                         set_label: "Save…",
@@ -68,7 +68,7 @@ impl SimpleComponent for AppModel {
                             gtk::ToggleButton {
                                 set_label: "Box",
                                 set_group: Some(&tool_select),
-                                set_tooltip_text: Some("Box (B)"),
+                                set_tooltip_text: Some("Box (R)"),
                             },
                             gtk::ToggleButton {
                                 set_label: "Arrow",
@@ -83,7 +83,7 @@ impl SimpleComponent for AppModel {
                             gtk::ToggleButton {
                                 set_label: "Redact",
                                 set_group: Some(&tool_select),
-                                set_tooltip_text: Some("Redact (R)"),
+                                set_tooltip_text: Some("Redact (X)"),
                             },
 
                             gtk::Separator {},
@@ -97,27 +97,27 @@ impl SimpleComponent for AppModel {
                             },
                             gtk::ToggleButton {
                                 add_css_class: "swatch",
-                                add_css_class: "swatch-orange",
-                                set_group: Some(&color_red),
-                                set_tooltip_text: Some("Orange (2)"),
-                            },
-                            gtk::ToggleButton {
-                                add_css_class: "swatch",
                                 add_css_class: "swatch-yellow",
                                 set_group: Some(&color_red),
-                                set_tooltip_text: Some("Yellow (3)"),
+                                set_tooltip_text: Some("Yellow (2)"),
                             },
                             gtk::ToggleButton {
                                 add_css_class: "swatch",
                                 add_css_class: "swatch-green",
                                 set_group: Some(&color_red),
-                                set_tooltip_text: Some("Green (4)"),
+                                set_tooltip_text: Some("Green (3)"),
                             },
                             gtk::ToggleButton {
                                 add_css_class: "swatch",
                                 add_css_class: "swatch-blue",
                                 set_group: Some(&color_red),
-                                set_tooltip_text: Some("Blue (5)"),
+                                set_tooltip_text: Some("Blue (4)"),
+                            },
+                            gtk::ToggleButton {
+                                add_css_class: "swatch",
+                                add_css_class: "swatch-black",
+                                set_group: Some(&color_red),
+                                set_tooltip_text: Some("Black (5)"),
                             },
 
                             gtk::Separator {},
