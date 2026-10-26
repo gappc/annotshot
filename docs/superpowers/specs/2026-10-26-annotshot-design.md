@@ -1,7 +1,7 @@
 # Annotshot — design
 
 Date: 2026-10-26
-Status: draft, awaiting user approval
+Status: implemented (v1, 2026-10-26) — see "Implementation notes" at the end for where the build differs from or adds to this design
 
 ## Intent
 
@@ -100,7 +100,7 @@ the clipboard. Annotshot never captures anything itself.
 
 | Tool | Shortcut | Behaviour |
 |---|---|---|
-| Select | V | Click an item to select it and show handles. Drag to move; drag handles to resize boxes and redaction boxes; for arrows, drag either end. Text labels can be moved but not resized (no resize handles). Double-click a text label to edit it. Delete/Backspace removes the selected item. |
+| Select | V | Click an item to select it and show handles. Drag to move (a selected box moves by its inside); drag handles or sides to resize boxes and redaction boxes; for arrows, drag either end. Text labels can be moved but not resized (no resize handles). Double-click a text label to edit it. Delete/Backspace removes the selected item. |
 | Box | R | Drag to draw a rectangle outline, no fill. |
 | Arrow | A | Drag from start to end; arrowhead at the end point. |
 | Text | T | Click to place a label and start typing; edits in place. Enter inserts a new line (multi-line labels, no automatic wrapping). Escape or clicking elsewhere finishes. Empty labels are discarded. *(Designer's call.)* |
@@ -110,6 +110,10 @@ the clipboard. Annotshot never captures anything itself.
   drawn in a row.
 - Changing color or line width while an item is selected changes that item;
   otherwise it sets the style for the next item.
+- While an item is selected, its corners, its sides (boxes and redactions) and
+  an arrow's ends can be dragged with every tool except Text, without
+  switching to Select. The mouse cursor shows where this is possible.
+  *(Added after user feedback.)*
 
 ### Look of annotations
 
@@ -146,7 +150,7 @@ the clipboard. Annotshot never captures anything itself.
   After that, Ctrl+S overwrites the same file silently.
 - **Ctrl+Shift+S:** Save As — always opens the dialog; later Ctrl+S saves go to
   the new file.
-- The format follows the chosen file type / extension.
+- The format follows the file name's extension (`.png` → PNG, `.jpg`/`.jpeg` → JPEG, none → `.jpg` added, asking before replacing an existing file of that name).
 - After saving, the image stays open and editable.
 - JPEG encoding via gdk-pixbuf (part of the GTK stack); PNG via gdk-pixbuf or
   Cairo. No extra image crate.
@@ -190,3 +194,27 @@ In this order (user said these are sometimes required, so high priority):
 - Icon design, exact hint wording, tooltips.
 - Shortcut for Redact if X feels wrong.
 - Testing approach.
+
+## Implementation notes (v1)
+
+Where the build differs from or adds to the design above. Verified by unit
+tests, a headless GUI harness (`tests/gui/`) and the user on their GNOME
+Wayland desktop (clipboard after closing, save dialog, 125 % scaling).
+
+- **Copied image after closing:** GNOME's behaviour couldn't be checked
+  automatically, so Annotshot always stays in the background (window hidden)
+  while it owns the clipboard and quits once something else is copied.
+  Relaunching meanwhile shows a fresh empty window.
+- **Typing in a label:** while the text editor is open, Ctrl+C/V/X/Z/Y and
+  Delete act on the text. The Copy/Save buttons and Ctrl+S / Ctrl+Shift+S
+  finish the label first, then act.
+- **Selection sets the style:** selecting an item makes its color (and width,
+  for boxes and arrows) the current style, so the tool column always shows
+  what the next shape gets.
+- **Drawing only starts on the image:** presses in the grey area around the
+  image are ignored by drawing tools (except to grab a selected item's handle
+  or side); a drag may still end outside.
+- **Dialogs:** window shortcuts are ignored while a warning dialog is open.
+- **PNG** is written via gdk-pixbuf (no alpha; screenshots are opaque).
+- **App ID** `net.gappc.Annotshot`; Redact shortcut X; default tool Box;
+  label border drawn inside the label box.

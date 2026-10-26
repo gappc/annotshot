@@ -41,3 +41,13 @@ Annotshot then appears in the GNOME app launcher.
 - The file name's extension decides the format when saving: `.png` → PNG, `.jpg`/`.jpeg` → JPEG, no extension → `.jpg` is added. Choosing the PNG filter in the save dialog is not enough; change the name to end in `.png`.
 - Use **Redact** (a solid box) to hide sensitive data. Pixelating or blurring is not safe.
 - A copied image stays available after you close the window: Annotshot keeps running in the background until something else is copied.
+
+## Development
+
+    cargo run                 # development build
+    cargo test                # unit tests (model, editor, rendering, export, …)
+    cargo clippy --all-targets -- -D warnings
+    tests/gui/smoke.sh        # headless GUI run with screenshots, see tests/gui/README.md
+
+After changes, run `./install.sh` again to update the launcher version. Design
+and implementation plan: `docs/superpowers/`.

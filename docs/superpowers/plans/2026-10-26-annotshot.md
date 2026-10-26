@@ -1,5 +1,7 @@
 # Annotshot Implementation Plan
 
+> **Status:** executed 2026-10-26 (all 10 tasks plus a final review fix wave; merged to `main`). Later changes are in the git history and the design's "Implementation notes".
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** A native GNOME app (Rust + GTK4 + libadwaita) that takes a screenshot pasted from the clipboard, lets the user add boxes, arrows, text labels and redaction boxes as editable objects, and copies or saves the flattened result as JPEG/PNG.
