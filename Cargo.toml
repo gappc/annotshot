@@ -1,0 +1,11 @@
+[package]
+name = "annotshot"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+adw = { version = "0.9", package = "libadwaita", features = ["v1_6"] }
+gtk = { version = "0.11", package = "gtk4", features = ["v4_16"] }
+kurbo = "0.13"
+pangocairo = "0.22.9"
+relm4 = { version = "0.11", features = ["libadwaita"] }
