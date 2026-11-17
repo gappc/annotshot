@@ -2,17 +2,17 @@
 
 Feedback after v0.1.0 (2026-11-17). Each task is handled in its own session
 to keep the context clean. Status: `offen` → `brainstorming` → `geplant` →
-`in Arbeit` → `erledigt`.
+`in Arbeit` → `erledigt` (oder `zurückgestellt`).
 
 | # | Task                              | Status | Größe | Berührt                                    |
 |---|-----------------------------------|--------|-------|--------------------------------------------|
 | 1 | Weiß in der Farbpalette           | erledigt | S     | `model.rs` (Color), `app.rs` (Swatches)    |
 | 2 | Textgröße einstellbar             | erledigt | S–M   | `model.rs` (Shape::Text), `text_edit.rs`, `render.rs`, `app.rs` |
-| 3 | Zoom mit Strg + Mausrad           | offen  | M     | `view.rs`, `canvas.rs`, `text_edit.rs`     |
+| 3 | Zoom mit Strg + Mausrad           | zurückgestellt | M     | `view.rs`, `canvas.rs`, `text_edit.rs`     |
 | 4 | Bereich auswählen und weiterverwenden | offen | M–L | neues Werkzeug, `history.rs`, `export.rs`, `files.rs` |
 | 5 | Bild drehen                       | offen  | M     | `history.rs`, `render.rs`, `geometry.rs`   |
 
-Empfohlene Reihenfolge: 1 → 2 → 3 → 5 → 4. Die ersten beiden sind klein und
+Empfohlene Reihenfolge: 1 → 2 → 5 → 4 (3 zurückgestellt). Die ersten beiden sind klein und
 unabhängig. 4 und 5 ändern beide das Grundbild; wer zuerst kommt, baut die
 gemeinsame Grundlage (siehe unten), der zweite nutzt sie.
 
@@ -38,6 +38,26 @@ Analog zu Breite bei Box/Arrow (Thin/Medium/Thick).
   die Größe eines ausgewählten/offenen Texts ändern (wie die Farbe heute)?
 
 ## 3. Zoom mit Strg + Mausrad
+
+**Zurückgestellt (2026-11-17):** nur eine Idee, bisher kein konkreter Bedarf.
+Ohne Anlass wären Zoombereich, Kantenschärfe und Verschieben geraten. Wieder
+aufnehmen, wenn ein echter Fall auftaucht; mit Task 4 (Zuschneiden) kann der
+Bedarf auch kleiner werden.
+
+Befund aus dem Brainstorming:
+- Die Ansicht ist zustandslos: `CanvasState::view()` rechnet sie bei jedem
+  Zeichnen/Klick per `ViewTransform::fit` aus der Widget-Größe neu. Zoom braucht
+  erstmals gespeicherten Zustand (Faktor + Verschiebung) in `CanvasState`.
+- Die Leinwand ist eine nackte `DrawingArea` in einem `Overlay`, kein
+  `ScrolledWindow` – keine Scrollbalken, keine Scroll-Events bisher.
+- Geht schon mit: Klicktoleranz und Auswahl-Griffe rechnen in Bildschirmpixeln
+  (`/ view.scale`), Drags merken sich die Ansicht vom Start.
+- Text-Editor: wird beim Öffnen platziert; bei Größenänderung wird heute
+  committet. Neu platzieren ginge, `placement()` braucht nur Ursprung + Skalierung.
+- Bild wird mit `cairo::Filter::Good` gezeichnet; bei starker Vergrößerung
+  weich, für pixelgenaues Arbeiten wäre `Nearest` nötig.
+
+Ursprüngliche Notizen:
 
 - `view.rs` kennt nur „einpassen, nie vergrößern“. Dazu kommen Zoomfaktor und
   Verschiebung (Pan).
