@@ -134,7 +134,8 @@ impl Editor {
     }
 
     /// Make the current style match the selected item, so the toolbar always
-    /// shows the style the next shape will use. Text/Redact have no width.
+    /// shows the style the next shape will use. Redact/Highlight have no
+    /// width; a pixelation has no color.
     fn adopt_selected_style(&mut self) {
         let Some(item) = self.selected.and_then(|id| self.items.iter().find(|i| i.id == id)) else {
             return;
@@ -143,9 +144,8 @@ impl Editor {
             Shape::Rect { style, .. } | Shape::Arrow { style, .. } | Shape::Marker { style, .. } => {
                 self.style = *style
             }
-            Shape::Text { color, .. } | Shape::Redact { color, .. } | Shape::Highlight { color, .. } => {
-                self.style.color = *color
-            }
+            Shape::Text { color, width, .. } => self.style = Style { color: *color, width: *width },
+            Shape::Redact { color, .. } | Shape::Highlight { color, .. } => self.style.color = *color,
             Shape::Pixelate { width, .. } => self.style.width = *width,
         }
     }
@@ -328,9 +328,12 @@ impl Editor {
         self.commit_from(before);
     }
 
-    pub fn text_of(&self, id: ItemId) -> Option<(Point, String, Color)> {
+    /// Origin, text and style (color and size) of label `id`.
+    pub fn text_of(&self, id: ItemId) -> Option<(Point, String, Style)> {
         self.items.iter().find(|i| i.id == id).and_then(|i| match &i.shape {
-            Shape::Text { origin, text, color, .. } => Some((*origin, text.clone(), *color)),
+            Shape::Text { origin, text, color, width } => {
+                Some((*origin, text.clone(), Style { color: *color, width: *width }))
+            }
             _ => None,
         })
     }
@@ -370,8 +373,8 @@ impl Editor {
             Shape::Rect { style, .. } | Shape::Arrow { style, .. } | Shape::Marker { style, .. } => {
                 style.width = w
             }
-            Shape::Pixelate { width, .. } => *width = w,
-            Shape::Text { .. } | Shape::Redact { .. } | Shape::Highlight { .. } => {}
+            Shape::Pixelate { width, .. } | Shape::Text { width, .. } => *width = w,
+            Shape::Redact { .. } | Shape::Highlight { .. } => {}
         });
     }
 
@@ -702,7 +705,7 @@ mod tests {
         let id = e.items[0].id;
         e.set_text(id, "hello");
         e.set_text(id, "bye");
-        assert_eq!(e.text_of(id), Some((pt(5., 5.), "bye".into(), Color::Red)));
+        assert_eq!(e.text_of(id), Some((pt(5., 5.), "bye".into(), Style { color: Color::Red, width: Width::Medium })));
         e.undo();
         assert_eq!(e.text_of(id).unwrap().1, "hello");
         e.undo();
@@ -724,7 +727,7 @@ mod tests {
         e.style.color = Color::Green;
         e.add_text(pt(5., 5.), "x");
         assert_eq!(e.selected, Some(e.items[0].id));
-        assert_eq!(e.text_of(e.items[0].id).unwrap().2, Color::Green);
+        assert_eq!(e.text_of(e.items[0].id).unwrap().2.color, Color::Green);
     }
 
     #[test]
@@ -802,6 +805,70 @@ mod tests {
         e.press(pt(50., 50.), 2.0, &M);
         e.release(pt(50., 50.));
         assert_eq!(e.style, Style { color: Color::Black, width: Width::Thin });
+    }
+
+    fn text_width(e: &Editor, i: usize) -> Width {
+        match e.items[i].shape {
+            Shape::Text { width, .. } => width,
+            ref s => panic!("not text: {s:?}"),
+        }
+    }
+
+    fn undo_steps(e: &mut Editor) -> usize {
+        let mut n = 0;
+        while e.undo() {
+            n += 1;
+        }
+        n
+    }
+
+    #[test]
+    fn width_resizes_selected_text_as_one_undo_step() {
+        let mut e = Editor::new();
+        e.add_text(pt(5., 5.), "hello"); // selected after adding
+        e.set_width(Width::Thick);
+        e.set_width(Width::Thick);
+        assert_eq!(text_width(&e, 0), Width::Thick);
+        assert_eq!(e.style.width, Width::Thick);
+        assert!(e.undo());
+        assert_eq!(text_width(&e, 0), Width::Medium);
+        assert_eq!(undo_steps(&mut e), 1); // only the add is left
+    }
+
+    #[test]
+    fn new_text_takes_current_width() {
+        let mut e = Editor::new();
+        e.set_color(Color::Green);
+        e.set_width(Width::Thin);
+        e.add_text(pt(5., 5.), "x");
+        let id = e.items[0].id;
+        assert_eq!(e.text_of(id).unwrap().2, Style { color: Color::Green, width: Width::Thin });
+    }
+
+    #[test]
+    fn selecting_text_adopts_its_width() {
+        let mut e = Editor::new();
+        e.set_width(Width::Thin);
+        e.add_text(pt(5., 5.), "x");
+        e.selected = None;
+        e.set_width(Width::Thick);
+        e.tool = Tool::Select;
+        e.press(pt(10., 10.), 2.0, &M);
+        e.release(pt(10., 10.));
+        assert_eq!(e.selected, Some(e.items[0].id));
+        assert_eq!(e.style.width, Width::Thin);
+    }
+
+    #[test]
+    fn width_click_without_selection_changes_no_item() {
+        let mut e = Editor::new();
+        draw(&mut e, pt(100., 100.), pt(150., 150.));
+        e.add_text(pt(5., 5.), "x");
+        e.selected = None;
+        let before = e.items.clone();
+        e.set_width(Width::Thick);
+        assert_eq!(e.items, before);
+        assert_eq!(undo_steps(&mut e), 2); // the box and the label, nothing more
     }
 
     #[test]

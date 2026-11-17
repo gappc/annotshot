@@ -230,13 +230,14 @@ impl TextEditor {
 
     /// Open the editor on existing label `id`, hiding the label meanwhile.
     pub fn start_edit(&self, id: ItemId, view: ViewTransform) {
-        let Some((origin, text, color)) = ({
+        let Some((origin, text, style)) = ({
             let mut st = self.state.borrow_mut();
             let found = st.editor.text_of(id);
-            if let Some((_, _, color)) = &found {
-                // Select it so the toolbar shows its color and swatches recolor it.
+            if let Some((_, _, style)) = &found {
+                // Select it so the toolbar shows its color and size, and
+                // swatches and width buttons change it.
                 st.editor.selected = Some(id);
-                st.editor.style.color = *color;
+                st.editor.style = *style;
                 st.editing = Some(id);
                 st.text_open = true;
             }
@@ -245,7 +246,7 @@ impl TextEditor {
             return;
         };
         self.target.set(Some(Target::Existing(id)));
-        self.open(view.to_widget(origin), view.scale, color, &text);
+        self.open(view.to_widget(origin), view.scale, style.color, &text);
     }
 
     /// Commit the open editor into the editor model. Returns false if nothing was open.
