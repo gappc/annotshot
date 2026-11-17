@@ -47,6 +47,15 @@ pub fn flatten(base: &ImageSurface, items: &[Item], m: &PangoMeasure) -> ImageSu
     out
 }
 
+/// `flatten`, cut to `area` when there is one (what Copy puts on the clipboard).
+pub fn flatten_area(base: &ImageSurface, items: &[Item], area: Option<Rect>, m: &PangoMeasure) -> ImageSurface {
+    let flat = flatten(base, items, m);
+    match area {
+        Some(a) => crop(&flat, a),
+        None => flat,
+    }
+}
+
 /// Direction of a quarter turn.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Turn {
@@ -207,6 +216,22 @@ mod tests {
         let base = ImageSurface::create(Format::ARgb32, 3840, 2160).unwrap();
         let out = flatten(&base, &[], &PangoMeasure::new());
         assert_eq!((out.width(), out.height()), (3840, 2160));
+    }
+
+    #[test]
+    fn flatten_area_keeps_annotations_in_the_area() {
+        let base = white(64, 48);
+        let items = [Item {
+            id: 1,
+            shape: Shape::Redact { rect: Rect::new(10.0, 10.0, 30.0, 30.0), color: Color::Black },
+        }];
+        let m = PangoMeasure::new();
+        let mut out = flatten_area(&base, &items, Some(Rect::new(10., 10., 40., 40.)), &m);
+        assert_eq!((out.width(), out.height()), (30, 30));
+        assert_eq!(rgb_at(&mut out, 5, 5), (0, 0, 0));
+        assert_eq!(rgb_at(&mut out, 25, 25), (255, 255, 255));
+        let whole = flatten_area(&base, &items, None, &m);
+        assert_eq!((whole.width(), whole.height()), (64, 48));
     }
 
     #[test]

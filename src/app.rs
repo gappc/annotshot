@@ -197,13 +197,21 @@ impl AppModel {
         Some(export::flatten(img, &st.editor.items, &st.measure))
     }
 
-    /// Copy the flattened image. Copying does not count as saving.
+    /// Copy the flattened image, only the Area tool's rectangle if there is
+    /// one. Copying does not count as saving.
     fn copy(&self) {
         self.commit_text_if_open();
-        if let Some(surface) = self.flattened() {
+        let copied = {
+            let st = self.state.borrow();
+            let area = st.editor.area();
+            st.editor
+                .image()
+                .map(|img| (export::flatten_area(img, &st.editor.items, area, &st.measure), area.is_some()))
+        };
+        if let Some((surface, cut)) = copied {
             let texture = texture_from_surface(&surface);
             self.canvas.display().clipboard().set_texture(&texture);
-            self.toast("Copied");
+            self.toast(if cut { "Copied area" } else { "Copied" });
         }
     }
 
