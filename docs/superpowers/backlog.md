@@ -72,6 +72,21 @@ Ursprüngliche Notizen:
 
 Aus einem Vollbild-Screenshot nur einen Teil weiterverwenden.
 
+**Vorüberlegung (2026-11-17, beim Brainstorming zu Task 5):**
+- **b) Bereich kopieren** ist klein: neues Werkzeug zum Aufziehen eines
+  Rechtecks, dann nur diesen Bereich kopieren (`export::flatten` + Zuschnitt,
+  Copy gibt es schon). Das Grundbild bleibt unverändert, also kein Umbau der
+  Undo-Liste. Mit dem vorhandenen Strg+V wird der Ausschnitt danach zum neuen
+  Bild (Rückfrage „Start a new image?“ wie heute).
+- **c) als Ersetzen** ist praktisch b + Strg+V; ein Knopf „Auf Auswahl
+  zuschneiden“ würde das nur zusammenfassen. Annotationen landen dabei fest im
+  Bild; zurück zum Vollbild nur über eine vorher gespeicherte Datei.
+  **c) als Objekt** auf dem Bild wäre groß (neue Annotationsart mit Bild).
+- Erst **a) Zuschneiden mit bearbeitbaren Annotationen und Undo** braucht die
+  gemeinsame Grundlage (unten). Task 5 hat sie **nicht** gebaut: Drehen
+  übernimmt Annotationen ins Bild oder löscht sie und leert die Undo-Liste
+  (`Editor::clear_for_rotation`); dieses Muster ginge auch fürs Zuschneiden.
+
 - Mehrere mögliche Formen, im Brainstorming festlegen:
   a) **Zuschneiden** (Crop-Werkzeug): Bild wird auf den Bereich reduziert,
      Annotationen außerhalb fallen weg/werden verschoben. Undo-fähig.
@@ -96,3 +111,4 @@ Aus einem Vollbild-Screenshot nur einen Teil weiterverwenden.
 Drehen verändern das Grundbild, also muss ein Undo-Schritt künftig auch das
 Bild (oder die Transformation) enthalten. Das ist die eigentliche
 Architekturänderung; sie wird beim ersten der beiden Tasks gebaut.
+(Stand 2026-11-17: Task 5 ist ohne sie ausgekommen, siehe Vorüberlegung bei 4.)
