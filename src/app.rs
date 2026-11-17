@@ -8,8 +8,8 @@ use relm4::prelude::*;
 
 use crate::canvas::{self, CanvasState, SharedCanvas};
 use crate::editor::Tool;
-use crate::export::{self, surface_from_texture, texture_from_surface};
-use crate::files::{self, Choice};
+use crate::export::{self, Turn, surface_from_texture, texture_from_surface};
+use crate::files::{self, Choice, RotateChoice};
 use crate::model::{Color, Width};
 use crate::text_edit::TextEditor;
 
@@ -139,6 +139,10 @@ pub enum AppMsg {
     Confirmed(Choice),
     /// Launched again after the window was closed but kept hidden.
     Reopen,
+    /// Turn the image; asks first when there are annotations.
+    Rotate(Turn),
+    /// Answer to the rotate dialog.
+    RotateConfirmed(Turn, RotateChoice),
 }
 
 impl AppModel {
@@ -287,6 +291,40 @@ impl AppModel {
         });
     }
 
+    /// Turn the image by 90°. `merge` first draws the annotations into it;
+    /// otherwise they are dropped. Either way none are left and undo starts over.
+    fn rotate(&mut self, turn: Turn, merge: bool) {
+        let mut st = self.state.borrow_mut();
+        let st = &mut *st;
+        let Some(img) = st.image.as_ref() else { return };
+        let base = if merge { export::flatten(img, &st.editor.items, &st.measure) } else { img.clone() };
+        st.image = Some(export::rotate(&base, turn));
+        st.editor.clear_for_rotation();
+        st.editing = None;
+    }
+
+    /// Rotate at once without annotations, else ask; the answer arrives as `RotateConfirmed`.
+    fn request_rotate(&mut self, turn: Turn, sender: &ComponentSender<Self>) {
+        self.commit_text_if_open();
+        let st = self.state.borrow();
+        if st.image.is_none() {
+            return;
+        }
+        let empty = st.editor.items.is_empty();
+        drop(st);
+        if empty {
+            self.rotate(turn, false);
+            return;
+        }
+        self.busy = true;
+        let dialog = files::rotate_dialog();
+        let (window, sender) = (self.window.clone(), sender.clone());
+        relm4::spawn_local(async move {
+            let response = dialog.choose_future(Some(&window)).await;
+            sender.input(AppMsg::RotateConfirmed(turn, RotateChoice::from_response(&response)));
+        });
+    }
+
     /// Empty document, as on a fresh start.
     fn reset(&mut self) {
         self.commit_text_if_open();
@@ -361,7 +399,11 @@ fn shortcut(key: gdk::Key, mods: gdk::ModifierType) -> Option<AppMsg> {
     let mods = mods & (M::CONTROL_MASK | M::SHIFT_MASK | M::ALT_MASK | M::SUPER_MASK);
     let key = key.to_lower();
     if mods == M::CONTROL_MASK | M::SHIFT_MASK {
-        return (key == gdk::Key::s).then_some(AppMsg::SaveAs);
+        return match key {
+            gdk::Key::s => Some(AppMsg::SaveAs),
+            gdk::Key::r => Some(AppMsg::Rotate(Turn::Left)),
+            _ => None,
+        };
     }
     if mods == M::CONTROL_MASK {
         return match key {
@@ -370,6 +412,7 @@ fn shortcut(key: gdk::Key, mods: gdk::ModifierType) -> Option<AppMsg> {
             gdk::Key::v => Some(AppMsg::Paste),
             gdk::Key::z => Some(AppMsg::Undo),
             gdk::Key::y => Some(AppMsg::Redo),
+            gdk::Key::r => Some(AppMsg::Rotate(Turn::Right)),
             _ => None,
         };
     }
@@ -420,6 +463,20 @@ impl SimpleComponent for AppModel {
                         #[watch]
                         set_sensitive: model.can_redo,
                         connect_clicked => AppMsg::Redo,
+                    },
+                    pack_start = &gtk::Button {
+                        set_icon_name: "object-rotate-left-symbolic",
+                        set_tooltip_text: Some("Rotate left (Ctrl+Shift+R)"),
+                        #[watch]
+                        set_sensitive: model.has_image,
+                        connect_clicked => AppMsg::Rotate(Turn::Left),
+                    },
+                    pack_start = &gtk::Button {
+                        set_icon_name: "object-rotate-right-symbolic",
+                        set_tooltip_text: Some("Rotate right (Ctrl+R)"),
+                        #[watch]
+                        set_sensitive: model.has_image,
+                        connect_clicked => AppMsg::Rotate(Turn::Right),
                     },
                     pack_end = &gtk::Button {
                         set_label: "Save…",
@@ -871,6 +928,16 @@ impl SimpleComponent for AppModel {
                 self.reset();
                 self.window.present();
             }
+            AppMsg::Rotate(turn) if !self.busy => self.request_rotate(turn, &sender),
+            AppMsg::Rotate(_) => {}
+            AppMsg::RotateConfirmed(turn, choice) => {
+                self.busy = false;
+                match choice {
+                    RotateChoice::Merge => self.rotate(turn, true),
+                    RotateChoice::Delete => self.rotate(turn, false),
+                    RotateChoice::Cancel => {}
+                }
+            }
         }
         self.sync();
     }
@@ -954,6 +1021,23 @@ mod tests {
             assert!(key_message(k, m, true, false).is_none(), "{k:?} must reach the text editor");
         }
         assert!(matches!(key_message(gdk::Key::c, ctrl, false, false), Some(AppMsg::Copy)));
+    }
+
+    #[test]
+    fn ctrl_r_rotates() {
+        assert!(matches!(shortcut(gdk::Key::r, M::CONTROL_MASK), Some(AppMsg::Rotate(Turn::Right))));
+        assert!(matches!(
+            shortcut(gdk::Key::R, M::CONTROL_MASK | M::SHIFT_MASK),
+            Some(AppMsg::Rotate(Turn::Left))
+        ));
+        // Plain R is still Box.
+        assert_eq!(tool_of(gdk::Key::r, M::empty()), Some(Tool::Rect));
+    }
+
+    #[test]
+    fn rotate_shortcut_blocked_while_typing() {
+        assert!(key_message(gdk::Key::r, M::CONTROL_MASK, true, false).is_none());
+        assert!(key_message(gdk::Key::R, M::CONTROL_MASK | M::SHIFT_MASK, true, false).is_none());
     }
 
     #[test]

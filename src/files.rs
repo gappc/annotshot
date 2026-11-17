@@ -78,6 +78,44 @@ impl Choice {
     }
 }
 
+/// What the user chose when rotating an image that has annotations.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RotateChoice {
+    Cancel,
+    /// Drop the annotations, then rotate.
+    Delete,
+    /// Draw the annotations into the image, then rotate.
+    Merge,
+}
+
+impl RotateChoice {
+    pub fn from_response(id: &str) -> Self {
+        match id {
+            "merge" => RotateChoice::Merge,
+            "delete" => RotateChoice::Delete,
+            _ => RotateChoice::Cancel,
+        }
+    }
+}
+
+/// Question asked before rotating an image that has annotations.
+pub fn rotate_dialog() -> adw::AlertDialog {
+    let dialog = adw::AlertDialog::new(
+        Some("Rotate image?"),
+        Some("The annotations can be merged into the image, where they can no longer be edited, or deleted."),
+    );
+    dialog.add_responses(&[
+        ("cancel", "Cancel"),
+        ("delete", "Delete annotations"),
+        ("merge", "Merge into image"),
+    ]);
+    dialog.set_response_appearance("delete", adw::ResponseAppearance::Destructive);
+    dialog.set_response_appearance("merge", adw::ResponseAppearance::Suggested);
+    dialog.set_default_response(Some("merge"));
+    dialog.set_close_response("cancel");
+    dialog
+}
+
 const UNSAVED_BODY: &str = "Your changes to the current image have not been saved.";
 
 /// Question asked before replacing the current image (`closing == false`) or
@@ -163,5 +201,13 @@ mod tests {
         assert_eq!(Choice::from_response("new"), Choice::Discard);
         assert_eq!(Choice::from_response("cancel"), Choice::Cancel);
         assert_eq!(Choice::from_response(""), Choice::Cancel);
+    }
+
+    #[test]
+    fn rotate_responses_map_to_choices() {
+        assert_eq!(RotateChoice::from_response("merge"), RotateChoice::Merge);
+        assert_eq!(RotateChoice::from_response("delete"), RotateChoice::Delete);
+        assert_eq!(RotateChoice::from_response("cancel"), RotateChoice::Cancel);
+        assert_eq!(RotateChoice::from_response(""), RotateChoice::Cancel);
     }
 }

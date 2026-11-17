@@ -79,6 +79,7 @@ To install elsewhere, set `PREFIX`, e.g. `PREFIX=/usr/local ./install.sh` (defau
 | Ctrl+S | Save |
 | Ctrl+Shift+S | Save as |
 | Ctrl+Z / Ctrl+Y | Undo / redo |
+| Ctrl+R / Ctrl+Shift+R | Rotate right / left |
 | Delete / BackSpace | Delete selection |
 | Escape | Finish text |
 | Enter | New line in text |
