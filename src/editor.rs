@@ -1,4 +1,4 @@
-use crate::geometry::{drag_handle, grab_at, hit_test, translate, Handle};
+use crate::geometry::{bounds, drag_handle, grab_at, hit_test, translate, Handle};
 use crate::history::History;
 use crate::model::{Color, Item, ItemId, Shape, Style, TextMeasure, Width, MIN_SIZE};
 use gtk::cairo::ImageSurface;
@@ -49,6 +49,21 @@ enum Drag {
     AreaHandle { handle: Handle, orig: Rect },
 }
 
+/// One undo step: the items, plus the image side of a crop.
+struct Snapshot {
+    items: Vec<Item>,
+    crop: Option<CropSide>,
+}
+
+/// One side of a crop step. `before_crop`: restoring it brings back the
+/// uncropped image with the Area tool and `area`; otherwise the cropped image
+/// with the tool from before Area and no area.
+struct CropSide {
+    image: ImageSurface,
+    area: Rect,
+    before_crop: bool,
+}
+
 pub struct Editor {
     /// The screenshot the items are drawn on; `None` before the first paste.
     image: Option<ImageSurface>,
@@ -56,7 +71,7 @@ pub struct Editor {
     pub selected: Option<ItemId>,
     pub tool: Tool,
     pub style: Style,
-    history: History,
+    history: History<Snapshot>,
     dirty: bool,
     drag: Drag,
     next_id: ItemId,
@@ -165,7 +180,7 @@ impl Editor {
 
     /// Record the current state as an undo step and mark dirty.
     fn commit_from(&mut self, before: Vec<Item>) {
-        self.history.record(before);
+        self.history.record(Snapshot { items: before, crop: None });
         self.dirty = true;
     }
 
@@ -520,9 +535,10 @@ impl Editor {
     }
 
     pub fn undo(&mut self) -> bool {
-        match self.history.undo(self.items.clone()) {
-            Some(items) => {
-                self.apply(items);
+        let current = self.counterpart();
+        match self.history.undo(current) {
+            Some(step) => {
+                self.restore(step);
                 true
             }
             None => false,
@@ -530,13 +546,73 @@ impl Editor {
     }
 
     pub fn redo(&mut self) -> bool {
-        match self.history.redo(self.items.clone()) {
-            Some(items) => {
-                self.apply(items);
+        let current = self.counterpart();
+        match self.history.redo(current) {
+            Some(step) => {
+                self.restore(step);
                 true
             }
             None => false,
         }
+    }
+
+    /// Builds the snapshot of the current state to keep on the other stack:
+    /// for a crop step, the other side of that crop.
+    fn counterpart(&self) -> impl FnOnce(&Snapshot) -> Snapshot + use<> {
+        let items = self.items.clone();
+        let image = self.image.clone();
+        move |popped| Snapshot {
+            items,
+            crop: popped.crop.as_ref().and_then(|c| {
+                Some(CropSide { image: image?, area: c.area, before_crop: !c.before_crop })
+            }),
+        }
+    }
+
+    fn restore(&mut self, step: Snapshot) {
+        match step.crop {
+            Some(c) => {
+                self.image = Some(c.image);
+                if c.before_crop {
+                    self.set_tool(Tool::Area);
+                    self.area = Some(c.area);
+                } else if self.tool == Tool::Area {
+                    self.set_tool(self.tool_before_area);
+                }
+            }
+            None => self.area = None,
+        }
+        self.apply(step.items);
+    }
+
+    /// Crop the image to the area as one undo step. Items move with the image;
+    /// those entirely outside it are dropped. Afterwards the tool from before
+    /// Area is active again.
+    #[cfg_attr(not(test), allow(dead_code))] // used by the window from the next commit on
+    pub fn crop(&mut self, m: &dyn TextMeasure) -> bool {
+        if !self.can_crop() {
+            return false;
+        }
+        let (Some(area), Some(old)) = (self.area, self.image.clone()) else { return false };
+        let new = crate::export::crop(&old, area);
+        let (w, h) = (new.width() as f64, new.height() as f64);
+        self.history.record(Snapshot {
+            items: self.items.clone(),
+            crop: Some(CropSide { image: old, area, before_crop: true }),
+        });
+        let shift = -area.origin().to_vec2();
+        for it in &mut self.items {
+            translate(&mut it.shape, shift);
+        }
+        self.items.retain(|it| {
+            let b = bounds(&it.shape, m);
+            b.x1 >= 0.0 && b.x0 <= w && b.y1 >= 0.0 && b.y0 <= h
+        });
+        self.image = Some(new);
+        self.selected = None;
+        self.set_tool(self.tool_before_area);
+        self.dirty = true;
+        true
     }
 
     pub fn can_undo(&self) -> bool {
@@ -703,6 +779,101 @@ mod tests {
         area(&mut e, pt(30., 20.), pt(100., 80.));
         e.reset();
         assert_eq!(e.area(), None);
+    }
+
+    fn size_of(e: &Editor) -> (i32, i32) {
+        let i = e.image().unwrap();
+        (i.width(), i.height())
+    }
+
+    /// 200×100 image with a box inside the later crop, one partly inside and
+    /// one entirely outside; then an area (10,10)-(110,60) is selected.
+    fn three_boxes_and_area() -> Editor {
+        let mut e = editor_with_image(200, 100);
+        draw(&mut e, pt(20., 20.), pt(40., 40.));
+        draw(&mut e, pt(5., 5.), pt(15., 15.));
+        draw(&mut e, pt(150., 60.), pt(190., 90.));
+        area(&mut e, pt(10., 10.), pt(110., 60.));
+        e
+    }
+
+    #[test]
+    fn crop_shifts_keeps_partly_outside_and_drops_outside_items() {
+        let mut e = three_boxes_and_area();
+        assert!(e.crop(&M));
+        assert_eq!(size_of(&e), (100, 50));
+        assert_eq!(e.items.len(), 2);
+        assert_eq!(rect_of(&e, 0), Rect::new(10., 10., 30., 30.));
+        assert_eq!(rect_of(&e, 1), Rect::new(-5., -5., 5., 5.));
+        assert_eq!((e.tool, e.area(), e.selected), (Tool::Rect, None, None));
+        assert!(e.is_dirty());
+    }
+
+    #[test]
+    fn undo_crop_restores_image_items_and_area_redo_recrops() {
+        let mut e = three_boxes_and_area();
+        e.mark_saved();
+        e.crop(&M);
+        assert!(e.undo());
+        assert_eq!(size_of(&e), (200, 100));
+        assert_eq!(e.items.len(), 3);
+        assert_eq!((e.tool, e.area()), (Tool::Area, Some(Rect::new(10., 10., 110., 60.))));
+        assert!(e.is_dirty());
+        assert!(e.redo());
+        assert_eq!(size_of(&e), (100, 50));
+        assert_eq!(e.items.len(), 2);
+        assert_eq!((e.tool, e.area()), (Tool::Rect, None));
+        assert!(e.undo());
+        assert_eq!(size_of(&e), (200, 100));
+        assert_eq!(e.area(), Some(Rect::new(10., 10., 110., 60.)));
+    }
+
+    #[test]
+    fn recrop_after_undo_then_undo_twice_restores_original() {
+        let mut e = three_boxes_and_area();
+        e.crop(&M);
+        e.undo();
+        draw(&mut e, pt(50., 30.), pt(55., 35.)); // move the area by +5,+5
+        assert_eq!(e.area(), Some(Rect::new(15., 15., 115., 65.)));
+        assert!(e.crop(&M));
+        assert_eq!(size_of(&e), (100, 50));
+        assert!(!e.can_redo());
+        assert_eq!(rect_of(&e, 0), Rect::new(5., 5., 25., 25.));
+        e.undo();
+        assert_eq!((size_of(&e), e.items.len()), ((200, 100), 3));
+        assert_eq!(e.area(), Some(Rect::new(15., 15., 115., 65.)));
+        e.undo(); // the step before the crop: the third box is gone
+        assert_eq!((size_of(&e), e.items.len(), e.area()), ((200, 100), 2, None));
+    }
+
+    #[test]
+    fn crop_returns_to_previous_tool_with_its_color() {
+        let mut e = editor_with_image(200, 100);
+        e.set_tool(Tool::Highlight);
+        assert_eq!(e.style.color, Color::Yellow);
+        e.set_color(Color::Green);
+        area(&mut e, pt(10., 10.), pt(110., 60.));
+        assert!(e.crop(&M));
+        assert_eq!((e.tool, e.style.color), (Tool::Highlight, Color::Green));
+        e.set_tool(Tool::Rect);
+        assert_eq!(e.style.color, Color::Red);
+    }
+
+    #[test]
+    fn ordinary_undo_clears_area_and_full_area_does_not_crop() {
+        let mut e = editor_with_image(200, 100);
+        draw(&mut e, pt(10., 10.), pt(60., 40.));
+        area(&mut e, pt(20., 20.), pt(80., 80.));
+        assert!(e.undo());
+        assert_eq!((e.area(), e.items.len()), (None, 0));
+        e.redo();
+        e.mark_saved();
+        area(&mut e, pt(-5., -5.), pt(300., 300.));
+        assert!(!e.crop(&M));
+        assert_eq!(size_of(&e), (200, 100));
+        assert!(!e.is_dirty());
+        assert!(e.undo()); // still the box step, no empty crop step
+        assert!(e.items.is_empty());
     }
 
     #[test]

@@ -6,6 +6,8 @@ use gtk::gdk::prelude::*;
 use gtk::gdk_pixbuf::Pixbuf;
 use gtk::glib;
 
+use kurbo::Rect;
+
 use crate::model::Item;
 use crate::render::{PangoMeasure, draw_items};
 
@@ -72,6 +74,21 @@ pub fn rotate(src: &ImageSurface, turn: Turn) -> ImageSurface {
             }
         }
         cr.set_source_surface(src, 0.0, 0.0).expect("paint source");
+        cr.source().set_filter(cairo::Filter::Nearest);
+        cr.paint().expect("paint source");
+    }
+    out.flush();
+    out
+}
+
+/// New surface holding the pixels of `area` (whole-pixel edges inside `src`), unchanged.
+#[cfg_attr(not(test), allow(dead_code))] // used by the window from the next commit on
+pub fn crop(src: &ImageSurface, area: Rect) -> ImageSurface {
+    let out = ImageSurface::create(Format::ARgb32, area.width() as i32, area.height() as i32)
+        .expect("create cropped surface");
+    {
+        let cr = cairo::Context::new(&out).expect("create cairo context");
+        cr.set_source_surface(src, -area.x0, -area.y0).expect("paint source");
         cr.source().set_filter(cairo::Filter::Nearest);
         cr.paint().expect("paint source");
     }
@@ -240,6 +257,16 @@ mod tests {
     const RED: (u8, u8, u8) = (255, 0, 0);
     const GREEN: (u8, u8, u8) = (0, 255, 0);
     const BLUE: (u8, u8, u8) = (0, 0, 255);
+
+    #[test]
+    fn crop_cuts_exact_pixels() {
+        let mut out = crop(&sample_3x2(), Rect::new(1., 0., 3., 1.));
+        assert_eq!((out.width(), out.height()), (2, 1));
+        assert_eq!(rgb_at(&mut out, 0, 0), (255, 255, 255));
+        assert_eq!(rgb_at(&mut out, 1, 0), GREEN);
+        let mut out = crop(&sample_3x2(), Rect::new(0., 1., 1., 2.));
+        assert_eq!(rgb_at(&mut out, 0, 0), BLUE);
+    }
 
     /// 3×2 white image with red top-left, green top-right, blue bottom-left.
     fn sample_3x2() -> ImageSurface {
