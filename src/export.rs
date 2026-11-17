@@ -45,6 +45,40 @@ pub fn flatten(base: &ImageSurface, items: &[Item], m: &PangoMeasure) -> ImageSu
     out
 }
 
+/// Direction of a quarter turn.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Turn {
+    /// Counter-clockwise.
+    Left,
+    /// Clockwise.
+    Right,
+}
+
+/// New surface with `src` turned by 90°: width and height swap, pixel values
+/// are copied unchanged.
+pub fn rotate(src: &ImageSurface, turn: Turn) -> ImageSurface {
+    let (w, h) = (src.width(), src.height());
+    let out = ImageSurface::create(Format::ARgb32, h, w).expect("create rotated surface");
+    {
+        let cr = cairo::Context::new(&out).expect("create cairo context");
+        match turn {
+            Turn::Right => {
+                cr.translate(h as f64, 0.0);
+                cr.rotate(std::f64::consts::FRAC_PI_2);
+            }
+            Turn::Left => {
+                cr.translate(0.0, w as f64);
+                cr.rotate(-std::f64::consts::FRAC_PI_2);
+            }
+        }
+        cr.set_source_surface(src, 0.0, 0.0).expect("paint source");
+        cr.source().set_filter(cairo::Filter::Nearest);
+        cr.paint().expect("paint source");
+    }
+    out.flush();
+    out
+}
+
 pub fn save(surface: &ImageSurface, path: &Path, fmt: ImageFormat) -> Result<(), String> {
     // The cairo `png` feature is not enabled, so both formats go through gdk-pixbuf.
     let (w, h) = (surface.width() as usize, surface.height() as usize);
@@ -201,5 +235,61 @@ mod tests {
         let mut back = back;
         let d = back.data().unwrap();
         assert_eq!(&d[0..4], &[255, 255, 255, 255]);
+    }
+
+    const RED: (u8, u8, u8) = (255, 0, 0);
+    const GREEN: (u8, u8, u8) = (0, 255, 0);
+    const BLUE: (u8, u8, u8) = (0, 0, 255);
+
+    /// 3×2 white image with red top-left, green top-right, blue bottom-left.
+    fn sample_3x2() -> ImageSurface {
+        let s = white(3, 2);
+        {
+            let cr = Context::new(&s).unwrap();
+            for (x, y, (r, g, b)) in [(0, 0, RED), (2, 0, GREEN), (0, 1, BLUE)] {
+                cr.set_source_rgb(r as f64 / 255.0, g as f64 / 255.0, b as f64 / 255.0);
+                cr.rectangle(x as f64, y as f64, 1.0, 1.0);
+                cr.fill().unwrap();
+            }
+        }
+        s
+    }
+
+    fn rgb_at(s: &mut ImageSurface, x: usize, y: usize) -> (u8, u8, u8) {
+        s.flush();
+        let stride = s.stride() as usize;
+        let d = s.data().unwrap();
+        let i = y * stride + x * 4;
+        (d[i + 2], d[i + 1], d[i])
+    }
+
+    #[test]
+    fn rotate_right_turns_clockwise() {
+        let mut out = rotate(&sample_3x2(), Turn::Right);
+        assert_eq!((out.width(), out.height()), (2, 3));
+        assert_eq!(rgb_at(&mut out, 1, 0), RED); // top-left → top-right
+        assert_eq!(rgb_at(&mut out, 1, 2), GREEN); // top-right → bottom-right
+        assert_eq!(rgb_at(&mut out, 0, 0), BLUE); // bottom-left → top-left
+    }
+
+    #[test]
+    fn rotate_left_turns_counter_clockwise() {
+        let mut out = rotate(&sample_3x2(), Turn::Left);
+        assert_eq!((out.width(), out.height()), (2, 3));
+        assert_eq!(rgb_at(&mut out, 0, 2), RED); // top-left → bottom-left
+        assert_eq!(rgb_at(&mut out, 0, 0), GREEN); // top-right → top-left
+        assert_eq!(rgb_at(&mut out, 1, 2), BLUE); // bottom-left → bottom-right
+    }
+
+    #[test]
+    fn left_then_right_restores_every_pixel() {
+        let mut src = sample_3x2();
+        let mut back = rotate(&rotate(&src, Turn::Left), Turn::Right);
+        assert_eq!((back.width(), back.height()), (3, 2));
+        for y in 0..2 {
+            for x in 0..3 {
+                assert_eq!(rgb_at(&mut back, x, y), rgb_at(&mut src, x, y), "pixel {x},{y}");
+            }
+        }
     }
 }

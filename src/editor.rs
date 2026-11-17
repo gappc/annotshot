@@ -85,6 +85,16 @@ impl Editor {
         self.drag = Drag::None;
     }
 
+    /// After the image was turned: the annotations and every undo step refer
+    /// to the unrotated image, so they all go. The document counts as changed.
+    pub fn clear_for_rotation(&mut self) {
+        self.items.clear();
+        self.selected = None;
+        self.history.clear();
+        self.drag = Drag::None;
+        self.dirty = true;
+    }
+
     /// Switch tools. Highlight keeps its own current color (yellow at first),
     /// so entering or leaving it swaps colors; a selection of the other kind
     /// is dropped so the toolbar color always belongs to what it would change.
@@ -1078,5 +1088,18 @@ mod tests {
         e.press(pt(100., 50.), 6., &M);
         e.release(pt(100., 50.));
         assert_eq!(e.selected, Some(e.items[0].id));
+    }
+
+    #[test]
+    fn clear_for_rotation_empties_and_dirties() {
+        let mut e = Editor::new();
+        draw(&mut e, pt(10., 10.), pt(110., 60.));
+        e.mark_saved();
+        e.clear_for_rotation();
+        assert!(e.items.is_empty());
+        assert_eq!(e.selected, None);
+        assert!(!e.can_undo() && !e.can_redo());
+        assert!(e.is_dirty());
+        assert!(!e.undo()); // nothing comes back
     }
 }
