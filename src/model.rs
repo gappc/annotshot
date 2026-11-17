@@ -8,11 +8,13 @@ pub enum Color {
     Green,
     Blue,
     Black,
+    White,
 }
 
 impl Color {
     #[cfg_attr(not(test), allow(dead_code))] // only the tests iterate the palette
-    pub const ALL: [Color; 5] = [Color::Red, Color::Yellow, Color::Green, Color::Blue, Color::Black];
+    pub const ALL: [Color; 6] =
+        [Color::Red, Color::Yellow, Color::Green, Color::Blue, Color::Black, Color::White];
 
     pub fn rgb(self) -> (f64, f64, f64) {
         let hex = |r: u8, g: u8, b: u8| (r as f64 / 255.0, g as f64 / 255.0, b as f64 / 255.0);
@@ -22,6 +24,24 @@ impl Color {
             Color::Green => hex(0x33, 0xd1, 0x7a),
             Color::Blue => hex(0x35, 0x84, 0xe4),
             Color::Black => hex(0, 0, 0),
+            Color::White => hex(0xff, 0xff, 0xff),
+        }
+    }
+
+    /// Fill of a text label's box: white, except black behind white text.
+    pub fn label_box(self) -> Color {
+        match self {
+            Color::White => Color::Black,
+            _ => Color::White,
+        }
+    }
+
+    /// Border of a text label: the text color, except black around white text
+    /// (a white border would vanish on the usual white background).
+    pub fn label_border(self) -> Color {
+        match self {
+            Color::White => Color::Black,
+            c => c,
         }
     }
 }
@@ -118,7 +138,9 @@ mod tests {
     #[test]
     fn palette_and_widths() {
         assert_eq!(Color::default(), Color::Red);
-        assert_eq!(Color::ALL.len(), 5);
+        assert_eq!(Color::ALL.len(), 6);
+        assert_eq!(Color::ALL[5], Color::White);
+        assert_eq!(Color::White.rgb(), (1.0, 1.0, 1.0));
         let (r, g, b) = Color::Red.rgb();
         assert_eq!((r * 255.0).round(), 224.0);
         assert_eq!((g * 255.0).round(), 27.0);
@@ -129,6 +151,14 @@ mod tests {
             [2.0, 4.0, 8.0]
         );
         assert_eq!(Width::default(), Width::Medium);
+    }
+
+    #[test]
+    fn label_colors() {
+        assert_eq!(Color::Blue.label_box(), Color::White);
+        assert_eq!(Color::Blue.label_border(), Color::Blue);
+        assert_eq!(Color::White.label_box(), Color::Black);
+        assert_eq!(Color::White.label_border(), Color::Black);
     }
 
     #[test]

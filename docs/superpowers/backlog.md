@@ -6,7 +6,7 @@ to keep the context clean. Status: `offen` → `brainstorming` → `geplant` →
 
 | # | Task                              | Status | Größe | Berührt                                    |
 |---|-----------------------------------|--------|-------|--------------------------------------------|
-| 1 | Weiß in der Farbpalette           | offen  | S     | `model.rs` (Color), `app.rs` (Swatches)    |
+| 1 | Weiß in der Farbpalette           | erledigt | S     | `model.rs` (Color), `app.rs` (Swatches)    |
 | 2 | Textgröße einstellbar             | offen  | S–M   | `model.rs` (Shape::Text), `text_edit.rs`, `render.rs`, `app.rs` |
 | 3 | Zoom mit Strg + Mausrad           | offen  | M     | `view.rs`, `canvas.rs`, `text_edit.rs`     |
 | 4 | Bereich auswählen und weiterverwenden | offen | M–L | neues Werkzeug, `history.rs`, `export.rs`, `files.rs` |

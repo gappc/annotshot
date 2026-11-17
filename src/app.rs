@@ -20,7 +20,11 @@ button.swatch-yellow { background: #f6d32d; }
 button.swatch-green { background: #33d17a; }
 button.swatch-blue { background: #3584e4; }
 button.swatch-black { background: #000000; }
+button.swatch-white { background: #ffffff; border: 1px solid alpha(@window_fg_color, 0.35); }
 button.swatch:checked { border: 2px solid @window_fg_color; }
+/* The ring above vanishes on white (dark theme) and black (light theme). */
+button.swatch-white:checked { box-shadow: inset 0 0 0 2px #000000; }
+button.swatch-black:checked { box-shadow: inset 0 0 0 2px #ffffff; }
 ";
 
 pub struct AppModel {
@@ -595,6 +599,18 @@ impl SimpleComponent for AppModel {
                                 connect_toggled[sender] => move |b| if b.is_active() {
                                     sender.input(AppMsg::SetColor(Color::Black));
                                 } @h_black,
+                            },
+                            gtk::ToggleButton {
+                                add_css_class: "swatch",
+                                add_css_class: "swatch-white",
+                                set_group: Some(&color_red),
+                                set_tooltip_text: Some("White"),
+                                #[watch]
+                                #[block_signal(h_white)]
+                                set_active: model.color == Color::White,
+                                connect_toggled[sender] => move |b| if b.is_active() {
+                                    sender.input(AppMsg::SetColor(Color::White));
+                                } @h_white,
                             },
 
                             gtk::Separator {},

@@ -122,17 +122,25 @@ fn draw_shape(cr: &cairo::Context, shape: &Shape, number: u32, m: &PangoMeasure)
         }
         Shape::Text { origin, text, color } => {
             let b = bounds(shape, m);
-            cr.set_source_rgb(1.0, 1.0, 1.0);
+            set_color(cr, color.label_box());
             rect_path(cr, b);
             let _ = cr.fill();
-            set_color(cr, *color);
+            set_color(cr, color.label_border());
             cr.set_line_width(TEXT_BORDER);
             rect_path(cr, b.inflate(-TEXT_BORDER / 2.0, -TEXT_BORDER / 2.0));
             let _ = cr.stroke();
+            set_color(cr, *color);
             cr.move_to(origin.x + TEXT_PADDING, origin.y + TEXT_PADDING);
             pangocairo::functions::show_layout(cr, &make_layout(cr, text));
         }
         Shape::Pixelate { .. } => {}
+        Shape::Highlight { rect, color: Color::White } => {
+            // Multiplying with white would change nothing; white lightens
+            // instead, halfway to white, to tone an area down.
+            cr.set_source_rgba(1.0, 1.0, 1.0, 0.5);
+            rect_path(cr, *rect);
+            let _ = cr.fill();
+        }
         Shape::Highlight { rect, color } => {
             let (r, g, b) = highlight_rgb(*color);
             cr.set_source_rgb(r, g, b);
@@ -145,9 +153,9 @@ fn draw_shape(cr: &cairo::Context, shape: &Shape, number: u32, m: &PangoMeasure)
             set_color(cr, style.color);
             cr.arc(center.x, center.y, r, 0.0, std::f64::consts::TAU);
             let _ = cr.fill();
-            // Dark digits on yellow, white on the other colors.
+            // Dark digits on yellow and white, white on the other colors.
             match style.color {
-                Color::Yellow => cr.set_source_rgb(0.0, 0.0, 0.0),
+                Color::Yellow | Color::White => cr.set_source_rgb(0.0, 0.0, 0.0),
                 _ => cr.set_source_rgb(1.0, 1.0, 1.0),
             }
             let layout = marker_layout(cr, number, r);
@@ -436,6 +444,23 @@ mod tests {
     }
 
     #[test]
+    fn white_text_label_has_black_box() {
+        let mut s = render(Shape::Text {
+            origin: Point::new(10., 10.),
+            text: "Hi".into(),
+            color: Color::White,
+        });
+        assert_eq!(pixel(&mut s, 11, 11), (0, 0, 0)); // border
+        assert_eq!(pixel(&mut s, 14, 14), (0, 0, 0)); // box
+        let b = bounds(
+            &Shape::Text { origin: Point::new(10., 10.), text: "Hi".into(), color: Color::White },
+            &PangoMeasure::new(),
+        );
+        let white = count(&mut s, 10, 10, b.x1 as usize, b.y1 as usize, |p| p.0 > 200 && p.1 > 200 && p.2 > 200);
+        assert!(white > 10, "white glyph pixels: {white}");
+    }
+
+    #[test]
     fn skip_hides_item() {
         let mut s = white_surface();
         {
@@ -537,6 +562,13 @@ mod tests {
     }
 
     #[test]
+    fn white_marker_uses_dark_number() {
+        let mut s = render_on_black_stripe(&marker(100., 50., Color::White, Width::Thick));
+        let dark = count(&mut s, 92, 40, 108, 60, |p| p.0 < 80 && p.1 < 80 && p.2 < 80);
+        assert!(dark > 10, "dark digit pixels: {dark}");
+    }
+
+    #[test]
     fn two_digit_numbers_fit_the_circle() {
         let s = cairo::ImageSurface::create(cairo::Format::ARgb32, 10, 10).unwrap();
         let cr = cairo::Context::new(&s).unwrap();
@@ -610,6 +642,14 @@ mod tests {
         assert!(near(pixel(&mut s, 50, 50), (0xf0, 0x8d, 0x92)), "{:?}", pixel(&mut s, 50, 50));
         let mut s = render_on_black_stripe(&highlight(Color::Black));
         assert!(near(pixel(&mut s, 50, 50), (128, 128, 128)), "{:?}", pixel(&mut s, 50, 50));
+    }
+
+    #[test]
+    fn white_highlight_lightens() {
+        let mut s = render_on_black_stripe(&highlight(Color::White));
+        assert!(near(pixel(&mut s, 50, 100), (128, 128, 128)), "{:?}", pixel(&mut s, 50, 100)); // black → grey
+        assert_eq!(pixel(&mut s, 50, 50), WHITE); // white stays white
+        assert_eq!(pixel(&mut s, 10, 100), (0, 0, 0)); // outside
     }
 
     #[test]

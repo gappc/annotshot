@@ -76,15 +76,17 @@ fn hex(color: Color) -> String {
 }
 
 /// Stylesheet that makes the TextView look like a label: Sans Bold in the item
-/// color on white, with a border in the item color.
+/// color on its label box, with the label border (see `Color::label_box`).
 pub fn editor_css(scale: f64, color: Color) -> String {
     let p = placement(Point::ZERO, scale);
     let c = hex(color);
+    let bg = hex(color.label_box());
+    let border = hex(color.label_border());
     format!(
-        "textview.{CSS_CLASS} {{ border: {b:.3}px solid {c}; color: {c}; padding: 0; margin: 0; \
-         background-color: #ffffff; border-radius: 0; box-shadow: none; outline: none; \
+        "textview.{CSS_CLASS} {{ border: {b:.3}px solid {border}; color: {c}; padding: 0; margin: 0; \
+         background-color: {bg}; border-radius: 0; box-shadow: none; outline: none; \
          font-family: Sans; font-weight: bold; font-size: {f:.3}px; }}\n\
-         textview.{CSS_CLASS} text {{ background-color: #ffffff; color: {c}; caret-color: {c}; }}\n",
+         textview.{CSS_CLASS} text {{ background-color: {bg}; color: {c}; caret-color: {c}; }}\n",
         b = p.border,
         f = p.font_px,
     )
@@ -305,6 +307,15 @@ mod tests {
         // textview node itself (first rule).
         let first_rule = css.lines().next().unwrap();
         assert!(first_rule.contains("; color: #3584e4;"), "{first_rule}");
+    }
+
+    #[test]
+    fn css_white_text_on_black_box() {
+        let css = editor_css(1.0, Color::White);
+        assert!(css.contains("border: 2.000px solid #000000"), "{css}");
+        assert!(css.contains("background-color: #000000"), "{css}");
+        assert!(css.contains("; color: #ffffff;"), "{css}");
+        assert!(!css.contains("background-color: #ffffff"), "{css}");
     }
 
     #[test]
