@@ -26,6 +26,8 @@
       <li>Highlighter that keeps text readable</li>
       <li>Redaction with solid boxes</li>
       <li>Pixelation (cosmetic only, not for sensitive data)</li>
+      <li>Crop to a selected area, or copy just that area</li>
+      <li>Rotate by 90 degrees</li>
       <li>Save as JPEG or PNG, or copy to the clipboard</li>
     </ul>
   </description>
@@ -56,6 +58,16 @@
   </supports>
 
   <releases>
+    <release version="0.2.0" date="2026-11-17">
+      <description>
+        <ul>
+          <li>Select an area to copy just that part, or crop the image to it; cropping can be undone and annotations stay editable</li>
+          <li>Rotate the image by 90 degrees</li>
+          <li>Text labels come in three sizes</li>
+          <li>White joins the color palette</li>
+        </ul>
+      </description>
+    </release>
     <release version="0.1.0" date="2026-10-26">
       <description>
         <p>First release.</p>
