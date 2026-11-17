@@ -1,4 +1,4 @@
-use crate::model::{Shape, TextMeasure, TEXT_PADDING};
+use crate::model::{Shape, TextMeasure};
 use kurbo::{Line, ParamCurveNearest, Point, Rect, Vec2};
 
 pub fn bounds(shape: &Shape, m: &dyn TextMeasure) -> Rect {
@@ -9,12 +9,10 @@ pub fn bounds(shape: &Shape, m: &dyn TextMeasure) -> Rect {
             let r = style.width.marker_radius();
             Rect::new(center.x - r, center.y - r, center.x + r, center.y + r)
         }
-        Shape::Text { origin, text, .. } => {
-            let s = m.text_size(text);
-            Rect::from_origin_size(
-                *origin,
-                (s.width + 2.0 * TEXT_PADDING, s.height + 2.0 * TEXT_PADDING),
-            )
+        Shape::Text { origin, text, width, .. } => {
+            let s = m.text_size(text, width.font_px());
+            let pad = width.text_padding();
+            Rect::from_origin_size(*origin, (s.width + 2.0 * pad, s.height + 2.0 * pad))
         }
     }
 }
@@ -153,14 +151,23 @@ mod tests {
 
     struct FixedMeasure(Size);
     impl TextMeasure for FixedMeasure {
-        fn text_size(&self, _: &str) -> Size {
-            self.0
+        fn text_size(&self, _: &str, font_px: f64) -> Size {
+            self.0 * (font_px / 16.0)
         }
     }
     const M: FixedMeasure = FixedMeasure(Size::new(20., 16.));
 
     fn text_shape() -> Shape {
-        Shape::Text { origin: Point::new(5., 5.), text: "hi".into(), color: Color::Red }
+        Shape::Text { origin: Point::new(5., 5.), text: "hi".into(), color: Color::Red, width: Width::Medium }
+    }
+
+    #[test]
+    fn text_bounds_grow_with_width() {
+        let t = |width| Shape::Text { origin: Point::new(5., 5.), text: "hi".into(), color: Color::Red, width };
+        assert_eq!(bounds(&t(Width::Medium), &M), Rect::new(5., 5., 5. + 20. + 12., 5. + 16. + 12.));
+        assert_eq!(bounds(&t(Width::Thick), &M), Rect::new(5., 5., 5. + 35. + 21., 5. + 28. + 21.));
+        assert!(hit_test(&t(Width::Thick), Point::new(55., 50.), 0.0, &M));
+        assert!(!hit_test(&t(Width::Medium), Point::new(55., 50.), 0.0, &M));
     }
 
     fn marker() -> Shape {

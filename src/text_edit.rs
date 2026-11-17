@@ -10,7 +10,11 @@ use kurbo::Point;
 
 use crate::canvas::SharedCanvas;
 use crate::editor::Editor;
-use crate::model::{Color, ItemId, TextMeasure, TEXT_BORDER, TEXT_FONT_PX, TEXT_PADDING};
+use crate::model::{Color, ItemId, TextMeasure, TEXT_BORDER};
+
+// Temporary: the editor still assumes Medium; Task 3 makes it follow the label.
+const TEXT_FONT_PX: f64 = 16.0;
+const TEXT_PADDING: f64 = 6.0;
 use crate::view::ViewTransform;
 
 const CSS_CLASS: &str = "annotshot-text-editor";
@@ -141,7 +145,7 @@ impl TextEditor {
             view.buffer().connect_changed(move |buffer| {
                 let Some(view) = view_weak.upgrade() else { return };
                 let text = buffer.text(&buffer.start_iter(), &buffer.end_iter(), false);
-                let size = state.borrow().measure.text_size(&text);
+                let size = state.borrow().measure.text_size(&text, TEXT_FONT_PX);
                 let (w, h) = editor_size(size, scale.get());
                 view.set_size_request(w, h);
             });

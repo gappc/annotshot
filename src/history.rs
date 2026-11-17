@@ -43,14 +43,14 @@ impl History {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::model::{Color, Shape};
+    use crate::model::{Color, Shape, Width};
     use kurbo::Point;
 
     fn items(n: usize) -> Vec<Item> {
         (0..n as u64)
             .map(|id| Item {
                 id,
-                shape: Shape::Text { origin: Point::ZERO, text: "x".into(), color: Color::Red },
+                shape: Shape::Text { origin: Point::ZERO, text: "x".into(), color: Color::Red, width: Width::Medium },
             })
             .collect()
     }

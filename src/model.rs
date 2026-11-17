@@ -72,6 +72,21 @@ impl Width {
         }
     }
 
+    /// Font size of a text label at this width, in image px.
+    pub fn font_px(self) -> f64 {
+        match self {
+            Width::Thin => 12.0,
+            Width::Medium => 16.0,
+            Width::Thick => 28.0,
+        }
+    }
+
+    /// Space between a text label's edge and its text: 6 px at 16 px font,
+    /// growing with the font so large labels don't look cramped.
+    pub fn text_padding(self) -> f64 {
+        self.font_px() * 6.0 / 16.0
+    }
+
     /// Radius of a numbered marker drawn at this width.
     pub fn marker_radius(self) -> f64 {
         match self {
@@ -95,7 +110,8 @@ pub type ItemId = u64;
 pub enum Shape {
     Rect { rect: Rect, style: Style },
     Arrow { start: Point, end: Point, style: Style },
-    Text { origin: Point, text: String, color: Color },
+    /// `width` sets the font size (see `Width::font_px`).
+    Text { origin: Point, text: String, color: Color, width: Width },
     Redact { rect: Rect, color: Color },
     /// Highlighter-like tint, drawn under all other annotations.
     Highlight { rect: Rect, color: Color },
@@ -121,14 +137,12 @@ pub struct Item {
     pub shape: Shape,
 }
 
-pub const TEXT_FONT_PX: f64 = 16.0;
-pub const TEXT_PADDING: f64 = 6.0;
 pub const TEXT_BORDER: f64 = 2.0;
 pub const MIN_SIZE: f64 = 3.0;
 
 pub trait TextMeasure {
-    /// Size of the laid-out text, without padding.
-    fn text_size(&self, text: &str) -> Size;
+    /// Size of the laid-out text at `font_px`, without padding.
+    fn text_size(&self, text: &str, font_px: f64) -> Size;
 }
 
 #[cfg(test)]
@@ -159,6 +173,15 @@ mod tests {
         assert_eq!(Color::Blue.label_border(), Color::Blue);
         assert_eq!(Color::White.label_box(), Color::Black);
         assert_eq!(Color::White.label_border(), Color::Black);
+    }
+
+    #[test]
+    fn text_sizes_per_width() {
+        assert_eq!([Width::Thin.font_px(), Width::Medium.font_px(), Width::Thick.font_px()], [12.0, 16.0, 28.0]);
+        assert_eq!(
+            [Width::Thin.text_padding(), Width::Medium.text_padding(), Width::Thick.text_padding()],
+            [4.5, 6.0, 10.5]
+        );
     }
 
     #[test]

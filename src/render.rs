@@ -1,7 +1,5 @@
 use crate::geometry::{bounds, handles};
-use crate::model::{
-    Color, Item, ItemId, Shape, TextMeasure, TEXT_BORDER, TEXT_FONT_PX, TEXT_PADDING,
-};
+use crate::model::{Color, Item, ItemId, Shape, TextMeasure, TEXT_BORDER};
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Rc;
@@ -24,15 +22,15 @@ impl PangoMeasure {
 }
 
 impl TextMeasure for PangoMeasure {
-    fn text_size(&self, text: &str) -> Size {
-        let layout = make_layout(&self.cr, text);
+    fn text_size(&self, text: &str, font_px: f64) -> Size {
+        let layout = make_layout(&self.cr, text, font_px);
         let (w, h) = layout.size();
         Size::new(w as f64 / pango::SCALE as f64, h as f64 / pango::SCALE as f64)
     }
 }
 
-fn make_layout(cr: &cairo::Context, text: &str) -> pango::Layout {
-    sized_layout(cr, text, TEXT_FONT_PX)
+fn make_layout(cr: &cairo::Context, text: &str, font_px: f64) -> pango::Layout {
+    sized_layout(cr, text, font_px)
 }
 
 /// Layout for a marker's number; the font size equals the circle's radius.
@@ -120,7 +118,7 @@ fn draw_shape(cr: &cairo::Context, shape: &Shape, number: u32, m: &PangoMeasure)
                 let _ = cr.fill();
             }
         }
-        Shape::Text { origin, text, color } => {
+        Shape::Text { origin, text, color, width } => {
             let b = bounds(shape, m);
             set_color(cr, color.label_box());
             rect_path(cr, b);
@@ -130,8 +128,9 @@ fn draw_shape(cr: &cairo::Context, shape: &Shape, number: u32, m: &PangoMeasure)
             rect_path(cr, b.inflate(-TEXT_BORDER / 2.0, -TEXT_BORDER / 2.0));
             let _ = cr.stroke();
             set_color(cr, *color);
-            cr.move_to(origin.x + TEXT_PADDING, origin.y + TEXT_PADDING);
-            pangocairo::functions::show_layout(cr, &make_layout(cr, text));
+            let pad = width.text_padding();
+            cr.move_to(origin.x + pad, origin.y + pad);
+            pangocairo::functions::show_layout(cr, &make_layout(cr, text, width.font_px()));
         }
         Shape::Pixelate { .. } => {}
         Shape::Highlight { rect, color: Color::White } => {
@@ -438,6 +437,7 @@ mod tests {
             origin: Point::new(10., 10.),
             text: "Hi".into(),
             color: Color::Blue,
+            width: Width::Medium,
         });
         assert!(near(pixel(&mut s, 11, 11), (0x35, 0x84, 0xe4)));
         assert_eq!(pixel(&mut s, 14, 14), WHITE);
@@ -449,11 +449,12 @@ mod tests {
             origin: Point::new(10., 10.),
             text: "Hi".into(),
             color: Color::White,
+            width: Width::Medium,
         });
         assert_eq!(pixel(&mut s, 11, 11), (0, 0, 0)); // border
         assert_eq!(pixel(&mut s, 14, 14), (0, 0, 0)); // box
         let b = bounds(
-            &Shape::Text { origin: Point::new(10., 10.), text: "Hi".into(), color: Color::White },
+            &Shape::Text { origin: Point::new(10., 10.), text: "Hi".into(), color: Color::White, width: Width::Medium },
             &PangoMeasure::new(),
         );
         let white = count(&mut s, 10, 10, b.x1 as usize, b.y1 as usize, |p| p.0 > 200 && p.1 > 200 && p.2 > 200);
@@ -507,12 +508,12 @@ mod tests {
     fn text_size_is_independent_of_view_scale() {
         let m = PangoMeasure::new();
         let text = "Remove the arrow\nand this WWW label";
-        let expected = m.text_size(text);
+        let expected = m.text_size(text, 16.0);
         for scale in [0.25, 0.37, 0.5, 0.71] {
             let s = cairo::ImageSurface::create(cairo::Format::ARgb32, 10, 10).unwrap();
             let cr = cairo::Context::new(&s).unwrap();
             cr.scale(scale, scale);
-            let (w, h) = make_layout(&cr, text).size();
+            let (w, h) = make_layout(&cr, text, 16.0).size();
             let w = w as f64 / pango::SCALE as f64;
             let h = h as f64 / pango::SCALE as f64;
             assert!(w <= expected.width + 0.5, "scale {scale}: {w} > {}", expected.width);
@@ -523,8 +524,32 @@ mod tests {
     #[test]
     fn pango_measure_grows_with_text() {
         let m = PangoMeasure::new();
-        assert!(m.text_size("Hello world").width > m.text_size("Hi").width);
-        assert!(m.text_size("a\nb").height > m.text_size("a").height);
+        assert!(m.text_size("Hello world", 16.0).width > m.text_size("Hi", 16.0).width);
+        assert!(m.text_size("a\nb", 16.0).height > m.text_size("a", 16.0).height);
+    }
+
+    #[test]
+    fn pango_measure_grows_with_font_size() {
+        let m = PangoMeasure::new();
+        let small = m.text_size("Hello", Width::Thin.font_px());
+        let big = m.text_size("Hello", Width::Thick.font_px());
+        assert!(big.width > small.width * 2.0 && big.height > small.height * 2.0, "{small:?} {big:?}");
+    }
+
+    #[test]
+    fn thick_text_label_is_larger_than_thin() {
+        let m = PangoMeasure::new();
+        let label = |width| Shape::Text { origin: Point::new(10., 10.), text: "Hi".into(), color: Color::Blue, width };
+        let mut right_edges = vec![];
+        for w in [Width::Thin, Width::Thick] {
+            let b = bounds(&label(w), &m);
+            let mut s = render(label(w));
+            let x = b.x1 as usize - 1;
+            let y = ((b.y0 + b.y1) / 2.0) as usize;
+            assert!(near(pixel(&mut s, x, y), (0x35, 0x84, 0xe4)), "{w:?}: border at {x},{y}");
+            right_edges.push(b.x1);
+        }
+        assert!(right_edges[1] > right_edges[0] + 10.0, "{right_edges:?}");
     }
 
     fn count(s: &mut cairo::ImageSurface, x0: usize, y0: usize, x1: usize, y1: usize, f: impl Fn((u8, u8, u8)) -> bool) -> usize {

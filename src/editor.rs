@@ -305,7 +305,7 @@ impl Editor {
         if text.trim().is_empty() {
             return;
         }
-        let shape = Shape::Text { origin, text: text.to_string(), color: self.style.color };
+        let shape = Shape::Text { origin, text: text.to_string(), color: self.style.color, width: self.style.width };
         self.push_item(shape);
     }
 
@@ -330,7 +330,7 @@ impl Editor {
 
     pub fn text_of(&self, id: ItemId) -> Option<(Point, String, Color)> {
         self.items.iter().find(|i| i.id == id).and_then(|i| match &i.shape {
-            Shape::Text { origin, text, color } => Some((*origin, text.clone(), *color)),
+            Shape::Text { origin, text, color, .. } => Some((*origin, text.clone(), *color)),
             _ => None,
         })
     }
@@ -435,8 +435,8 @@ mod tests {
 
     struct FixedMeasure(Size);
     impl TextMeasure for FixedMeasure {
-        fn text_size(&self, _: &str) -> Size {
-            self.0
+        fn text_size(&self, _: &str, font_px: f64) -> Size {
+            self.0 * (font_px / 16.0)
         }
     }
     const M: FixedMeasure = FixedMeasure(Size::new(20., 16.));
