@@ -2,7 +2,7 @@
 
 Date: 2026-11-17
 Backlog: task 5 (`docs/superpowers/backlog.md`)
-Status: approved 2026-11-17
+Status: implemented 2026-11-17
 
 ## Why
 
@@ -70,6 +70,16 @@ clipboard, so Annotshot cannot fix this automatically. The user rotates
 - The rotate helper lives in `export.rs` next to `surface_from_texture`, with
   unit tests on a small asymmetric image; a new `Editor` method drops items,
   history and selection and sets dirty (unlike `reset`, which clears dirty).
+
+## Implementation notes
+
+- Built as designed. Headless check (tests/gui): rotate without annotations,
+  Merge (box, pixelate and a just-typed label turn with the image and are no
+  longer selectable), Delete, Cancel (box stays editable), and a click on the
+  rotate button while typing commits the label and shows the dialog.
+- Rotating after a save is covered by the unit test
+  `clear_for_rotation_empties_and_dirties`; the harness cannot drive the
+  portal save dialog.
 
 ## Left to the builder
 

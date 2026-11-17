@@ -290,6 +290,11 @@ Wayland desktop (clipboard after closing, save dialog, 125 % scaling).
   sets its text again once the new style has been applied (tick callback, then
   idle; `text_edit::relayout_text`); without that, a smaller font left the box
   too tall until the next keystroke.
+- **Rotate** (2026-11-17, `specs/2026-11-17-rotate-design.md`): header-bar
+  buttons and Ctrl+R / Ctrl+Shift+R turn the image by 90° (`export::rotate`).
+  Existing annotations are first merged into the image (`export::flatten`) or
+  deleted, as chosen in a dialog; afterwards there are none, undo starts over
+  and the document is dirty. No undo for a rotation.
 
 ### Release and packaging (0.1.0, 2026-10-26)
 

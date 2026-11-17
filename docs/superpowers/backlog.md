@@ -10,7 +10,7 @@ to keep the context clean. Status: `offen` → `brainstorming` → `geplant` →
 | 2 | Textgröße einstellbar             | erledigt | S–M   | `model.rs` (Shape::Text), `text_edit.rs`, `render.rs`, `app.rs` |
 | 3 | Zoom mit Strg + Mausrad           | zurückgestellt | M     | `view.rs`, `canvas.rs`, `text_edit.rs`     |
 | 4 | Bereich auswählen und weiterverwenden | offen | M–L | neues Werkzeug, `history.rs`, `export.rs`, `files.rs` |
-| 5 | Bild drehen                       | geplant | M     | `history.rs`, `render.rs`, `geometry.rs`   |
+| 5 | Bild drehen                       | erledigt | M     | `history.rs`, `render.rs`, `geometry.rs`   |
 
 Empfohlene Reihenfolge: 1 → 2 → 5 → 4 (3 zurückgestellt). Die ersten beiden sind klein und
 unabhängig. 4 und 5 ändern beide das Grundbild; wer zuerst kommt, baut die
