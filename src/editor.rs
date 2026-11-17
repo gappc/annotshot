@@ -252,6 +252,9 @@ impl Editor {
 
     /// Remove the area; true if there was one.
     pub fn clear_area(&mut self) -> bool {
+        if matches!(self.drag, Drag::AreaNew { .. } | Drag::AreaMove { .. } | Drag::AreaHandle { .. }) {
+            self.drag = Drag::None;
+        }
         self.area.take().is_some()
     }
 
@@ -567,6 +570,7 @@ impl Editor {
     }
 
     fn restore(&mut self, step: Snapshot) {
+        self.drag = Drag::None;
         match step.crop {
             Some(c) => {
                 self.image = Some(c.image);
@@ -606,6 +610,8 @@ impl Editor {
         });
         self.image = Some(new);
         self.selected = None;
+        // A drag still under way refers to the uncropped image.
+        self.drag = Drag::None;
         self.set_tool(self.tool_before_area);
         self.dirty = true;
         true
@@ -870,6 +876,27 @@ mod tests {
         assert!(!e.is_dirty());
         assert!(e.undo()); // still the box step, no empty crop step
         assert!(e.items.is_empty());
+    }
+
+    #[test]
+    fn crop_or_clear_during_an_area_drag_ends_the_drag() {
+        let mut e = editor_with_image(200, 100);
+        area(&mut e, pt(10., 10.), pt(110., 60.));
+        e.press(pt(50., 30.), 6., &M); // start moving the area
+        e.drag_to(pt(60., 40.));
+        assert!(e.crop(&M));
+        e.drag_to(pt(70., 50.));
+        e.release(pt(70., 50.));
+        assert_eq!((e.tool, e.area()), (Tool::Rect, None));
+        assert!(e.items.is_empty());
+
+        let mut e = editor_with_image(200, 100);
+        area(&mut e, pt(10., 10.), pt(110., 60.));
+        e.press(pt(50., 30.), 6., &M);
+        assert!(e.clear_area());
+        e.drag_to(pt(60., 40.));
+        e.release(pt(60., 40.));
+        assert_eq!(e.area(), None);
     }
 
     #[test]

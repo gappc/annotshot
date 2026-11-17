@@ -107,6 +107,14 @@ pub fn draw(st: &CanvasState, cr: &cairo::Context, width: i32, height: i32) {
     }
 }
 
+/// Whether a press outside the image may start a drag: drawing tools only
+/// start on the image, since items begun in the letterbox would be clipped
+/// away yet still exist. Select keeps working there (handles on the edge),
+/// and so does Area, which clamps itself to the image.
+fn may_start_outside(tool: Tool, grabs_handle: bool) -> bool {
+    grabs_handle || matches!(tool, Tool::Select | Tool::Area)
+}
+
 /// An in-progress button-1 drag, in image coordinates.
 #[derive(Clone, Copy)]
 struct ActiveDrag {
@@ -185,7 +193,7 @@ pub fn attach(
                     let size = Size::new(img.width() as f64, img.height() as f64);
                     let tol = HIT_TOLERANCE / view.scale;
                     let grabs = matches!(st.editor.hover(p, tol, &st.measure), Hover::Handle(_));
-                    if st.editor.tool != Tool::Select && !grabs && !inside_image(size, p) {
+                    if !may_start_outside(st.editor.tool, grabs) && !inside_image(size, p) {
                         return None;
                     }
                     let outcome = st.editor.press(p, tol, &st.measure);
@@ -309,6 +317,14 @@ pub fn attach(
 mod tests {
     use super::*;
     use crate::model::Color;
+
+    #[test]
+    fn only_select_and_area_start_outside_the_image() {
+        assert!(may_start_outside(Tool::Select, false));
+        assert!(may_start_outside(Tool::Area, false)); // the area clamps itself
+        assert!(!may_start_outside(Tool::Rect, false));
+        assert!(may_start_outside(Tool::Rect, true)); // a handle on the edge
+    }
 
     #[test]
     fn cursor_shows_what_a_press_would_do() {

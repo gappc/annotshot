@@ -395,17 +395,22 @@ impl AppModel {
 
 /// Window-level shortcuts. While a dialog is showing none apply. While a text
 /// editor is open only the save shortcuts apply (they commit the text first);
-/// other keys go to the editor.
+/// other keys go to the editor. Enter crops only when `can_crop`; otherwise
+/// it goes on to a focused button.
 fn key_message(
     key: gdk::Key,
     mods: gdk::ModifierType,
     text_open: bool,
     dialog_open: bool,
+    can_crop: bool,
 ) -> Option<AppMsg> {
     if dialog_open {
         return None;
     }
     let msg = shortcut(key, mods)?;
+    if matches!(msg, AppMsg::Crop) && !can_crop {
+        return None;
+    }
     (!text_open || matches!(msg, AppMsg::Save | AppMsg::SaveAs)).then_some(msg)
 }
 
@@ -814,7 +819,11 @@ impl SimpleComponent for AppModel {
                 // Keys must not change the document under an alert dialog.
                 let dialog_open =
                     window.upgrade().is_some_and(|w| w.visible_dialog().is_some());
-                match key_message(key, mods, state.borrow().text_open, dialog_open) {
+                let (text_open, can_crop) = {
+                    let st = state.borrow();
+                    (st.text_open, st.editor.can_crop())
+                };
+                match key_message(key, mods, text_open, dialog_open, can_crop) {
                     Some(msg) => {
                         sender.input(msg);
                         glib::Propagation::Stop
@@ -1067,9 +1076,9 @@ mod tests {
     #[test]
     fn open_text_editor_only_lets_save_shortcuts_through() {
         let ctrl = M::CONTROL_MASK;
-        assert!(matches!(key_message(gdk::Key::s, ctrl, true, false), Some(AppMsg::Save)));
+        assert!(matches!(key_message(gdk::Key::s, ctrl, true, false, false), Some(AppMsg::Save)));
         assert!(matches!(
-            key_message(gdk::Key::S, ctrl | M::SHIFT_MASK, true, false),
+            key_message(gdk::Key::S, ctrl | M::SHIFT_MASK, true, false, false),
             Some(AppMsg::SaveAs)
         ));
         for (k, m) in [
@@ -1080,9 +1089,9 @@ mod tests {
             (gdk::Key::r, M::empty()),
             (gdk::Key::Delete, M::empty()),
         ] {
-            assert!(key_message(k, m, true, false).is_none(), "{k:?} must reach the text editor");
+            assert!(key_message(k, m, true, false, false).is_none(), "{k:?} must reach the text editor");
         }
-        assert!(matches!(key_message(gdk::Key::c, ctrl, false, false), Some(AppMsg::Copy)));
+        assert!(matches!(key_message(gdk::Key::c, ctrl, false, false, false), Some(AppMsg::Copy)));
     }
 
     #[test]
@@ -1097,10 +1106,18 @@ mod tests {
 
     #[test]
     fn enter_and_escape_go_to_open_text_editor() {
-        assert!(key_message(gdk::Key::Return, M::empty(), true, false).is_none());
-        assert!(key_message(gdk::Key::KP_Enter, M::empty(), true, false).is_none());
-        assert!(key_message(gdk::Key::Escape, M::empty(), true, false).is_none());
-        assert!(key_message(gdk::Key::Return, M::empty(), false, true).is_none());
+        assert!(key_message(gdk::Key::Return, M::empty(), true, false, false).is_none());
+        assert!(key_message(gdk::Key::KP_Enter, M::empty(), true, false, false).is_none());
+        assert!(key_message(gdk::Key::Escape, M::empty(), true, false, false).is_none());
+        assert!(key_message(gdk::Key::Return, M::empty(), false, true, true).is_none());
+    }
+
+    #[test]
+    fn enter_crops_only_when_a_crop_is_possible() {
+        // Otherwise Enter must reach a focused button (capture-phase controller).
+        assert!(key_message(gdk::Key::Return, M::empty(), false, false, false).is_none());
+        assert!(key_message(gdk::Key::KP_Enter, M::empty(), false, false, false).is_none());
+        assert!(matches!(key_message(gdk::Key::Return, M::empty(), false, false, true), Some(AppMsg::Crop)));
     }
 
     #[test]
@@ -1116,8 +1133,8 @@ mod tests {
 
     #[test]
     fn rotate_shortcut_blocked_while_typing() {
-        assert!(key_message(gdk::Key::r, M::CONTROL_MASK, true, false).is_none());
-        assert!(key_message(gdk::Key::R, M::CONTROL_MASK | M::SHIFT_MASK, true, false).is_none());
+        assert!(key_message(gdk::Key::r, M::CONTROL_MASK, true, false, false).is_none());
+        assert!(key_message(gdk::Key::R, M::CONTROL_MASK | M::SHIFT_MASK, true, false, false).is_none());
     }
 
     #[test]
@@ -1135,7 +1152,7 @@ mod tests {
             (gdk::Key::r, M::empty()),
         ] {
             for text_open in [false, true] {
-                assert!(key_message(k, m, text_open, true).is_none(), "{k:?} acts under a dialog");
+                assert!(key_message(k, m, text_open, true, false).is_none(), "{k:?} acts under a dialog");
             }
         }
     }
