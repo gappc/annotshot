@@ -246,18 +246,15 @@ impl Editor {
         hit(false).or_else(|| hit(true))
     }
 
-    #[cfg_attr(not(test), allow(dead_code))] // used by the window from the next commit on
     pub fn area(&self) -> Option<Rect> {
         self.area
     }
 
-    #[cfg_attr(not(test), allow(dead_code))] // used by the window from the next commit on
     /// Remove the area; true if there was one.
     pub fn clear_area(&mut self) -> bool {
         self.area.take().is_some()
     }
 
-    #[cfg_attr(not(test), allow(dead_code))] // used by the window from the next commit on
     /// An area exists and is smaller than the image.
     pub fn can_crop(&self) -> bool {
         self.area.is_some_and(|a| Some(a) != self.image_rect())
@@ -588,7 +585,6 @@ impl Editor {
     /// Crop the image to the area as one undo step. Items move with the image;
     /// those entirely outside it are dropped. Afterwards the tool from before
     /// Area is active again.
-    #[cfg_attr(not(test), allow(dead_code))] // used by the window from the next commit on
     pub fn crop(&mut self, m: &dyn TextMeasure) -> bool {
         if !self.can_crop() {
             return false;

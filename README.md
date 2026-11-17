@@ -74,15 +74,16 @@ To install elsewhere, set `PREFIX`, e.g. `PREFIX=/usr/local ./install.sh` (defau
 | H | Highlight |
 | P | Pixelate |
 | X | Redact |
+| C | Select area (to copy or crop) |
 | Ctrl+V | Paste |
-| Ctrl+C | Copy |
+| Ctrl+C | Copy (only the area, if one is selected) |
 | Ctrl+S | Save |
 | Ctrl+Shift+S | Save as |
 | Ctrl+Z / Ctrl+Y | Undo / redo |
 | Ctrl+R / Ctrl+Shift+R | Rotate right / left |
 | Delete / BackSpace | Delete selection |
-| Escape | Finish text |
-| Enter | New line in text |
+| Escape | Finish text; remove the area |
+| Enter | New line in text; crop to the area |
 
 ## Notes
 

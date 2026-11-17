@@ -51,6 +51,8 @@ pub struct AppModel {
     can_undo: bool,
     can_redo: bool,
     has_image: bool,
+    /// The Area tool has a rectangle smaller than the image.
+    can_crop: bool,
     dirty: bool,
 }
 
@@ -143,6 +145,10 @@ pub enum AppMsg {
     Rotate(Turn),
     /// Answer to the rotate dialog.
     RotateConfirmed(Turn, RotateChoice),
+    /// Crop the image to the Area tool's rectangle (Enter, Crop button).
+    Crop,
+    /// Remove the Area tool's rectangle (Escape).
+    ClearArea,
 }
 
 impl AppModel {
@@ -157,6 +163,7 @@ impl AppModel {
         self.can_undo = ed.can_undo();
         self.can_redo = ed.can_redo();
         self.has_image = st.editor.image().is_some();
+        self.can_crop = ed.can_crop();
         self.dirty = ed.is_dirty();
         drop(st);
         self.canvas.queue_draw();
@@ -428,6 +435,9 @@ fn shortcut(key: gdk::Key, mods: gdk::ModifierType) -> Option<AppMsg> {
         gdk::Key::n => Some(AppMsg::SetTool(Tool::Marker)),
         gdk::Key::h => Some(AppMsg::SetTool(Tool::Highlight)),
         gdk::Key::p => Some(AppMsg::SetTool(Tool::Pixelate)),
+        gdk::Key::c => Some(AppMsg::SetTool(Tool::Area)),
+        gdk::Key::Return | gdk::Key::KP_Enter => Some(AppMsg::Crop),
+        gdk::Key::Escape => Some(AppMsg::ClearArea),
         gdk::Key::Delete | gdk::Key::KP_Delete | gdk::Key::BackSpace => {
             Some(AppMsg::DeleteSelected)
         }
@@ -594,116 +604,145 @@ impl SimpleComponent for AppModel {
                                     sender.input(AppMsg::SetTool(Tool::Redact));
                                 } @h_redact,
                             },
-
-                            gtk::Separator {},
-
-                            #[name = "color_red"]
                             gtk::ToggleButton {
-                                add_css_class: "swatch",
-                                add_css_class: "swatch-red",
-                                set_tooltip_text: Some("Red"),
+                                set_label: "Area",
+                                set_group: Some(&tool_select),
+                                set_tooltip_text: Some("Select area (C)"),
                                 #[watch]
-                                #[block_signal(h_red)]
-                                set_active: model.color == Color::Red,
+                                #[block_signal(h_area)]
+                                set_active: model.tool == Tool::Area,
                                 connect_toggled[sender] => move |b| if b.is_active() {
-                                    sender.input(AppMsg::SetColor(Color::Red));
-                                } @h_red,
-                            },
-                            gtk::ToggleButton {
-                                add_css_class: "swatch",
-                                add_css_class: "swatch-yellow",
-                                set_group: Some(&color_red),
-                                set_tooltip_text: Some("Yellow"),
-                                #[watch]
-                                #[block_signal(h_yellow)]
-                                set_active: model.color == Color::Yellow,
-                                connect_toggled[sender] => move |b| if b.is_active() {
-                                    sender.input(AppMsg::SetColor(Color::Yellow));
-                                } @h_yellow,
-                            },
-                            gtk::ToggleButton {
-                                add_css_class: "swatch",
-                                add_css_class: "swatch-green",
-                                set_group: Some(&color_red),
-                                set_tooltip_text: Some("Green"),
-                                #[watch]
-                                #[block_signal(h_green)]
-                                set_active: model.color == Color::Green,
-                                connect_toggled[sender] => move |b| if b.is_active() {
-                                    sender.input(AppMsg::SetColor(Color::Green));
-                                } @h_green,
-                            },
-                            gtk::ToggleButton {
-                                add_css_class: "swatch",
-                                add_css_class: "swatch-blue",
-                                set_group: Some(&color_red),
-                                set_tooltip_text: Some("Blue"),
-                                #[watch]
-                                #[block_signal(h_blue)]
-                                set_active: model.color == Color::Blue,
-                                connect_toggled[sender] => move |b| if b.is_active() {
-                                    sender.input(AppMsg::SetColor(Color::Blue));
-                                } @h_blue,
-                            },
-                            gtk::ToggleButton {
-                                add_css_class: "swatch",
-                                add_css_class: "swatch-black",
-                                set_group: Some(&color_red),
-                                set_tooltip_text: Some("Black"),
-                                #[watch]
-                                #[block_signal(h_black)]
-                                set_active: model.color == Color::Black,
-                                connect_toggled[sender] => move |b| if b.is_active() {
-                                    sender.input(AppMsg::SetColor(Color::Black));
-                                } @h_black,
-                            },
-                            gtk::ToggleButton {
-                                add_css_class: "swatch",
-                                add_css_class: "swatch-white",
-                                set_group: Some(&color_red),
-                                set_tooltip_text: Some("White"),
-                                #[watch]
-                                #[block_signal(h_white)]
-                                set_active: model.color == Color::White,
-                                connect_toggled[sender] => move |b| if b.is_active() {
-                                    sender.input(AppMsg::SetColor(Color::White));
-                                } @h_white,
+                                    sender.input(AppMsg::SetTool(Tool::Area));
+                                } @h_area,
                             },
 
                             gtk::Separator {},
 
-                            #[name = "width_thin"]
-                            gtk::ToggleButton {
-                                set_label: "Thin",
-                                set_tooltip_text: Some("Thin"),
+                            gtk::Button {
+                                set_label: "Crop",
+                                set_tooltip_text: Some("Crop to area (Enter)"),
                                 #[watch]
-                                #[block_signal(h_thin)]
-                                set_active: model.width == Width::Thin,
-                                connect_toggled[sender] => move |b| if b.is_active() {
-                                    sender.input(AppMsg::SetWidth(Width::Thin));
-                                } @h_thin,
+                                set_visible: model.tool == Tool::Area,
+                                #[watch]
+                                set_sensitive: model.can_crop,
+                                connect_clicked => AppMsg::Crop,
                             },
-                            gtk::ToggleButton {
-                                set_label: "Medium",
-                                set_group: Some(&width_thin),
-                                set_tooltip_text: Some("Medium"),
+
+                            // Colors and widths mean nothing to the Area tool.
+                            gtk::Box {
+                                set_orientation: gtk::Orientation::Vertical,
+                                set_spacing: 6,
                                 #[watch]
-                                #[block_signal(h_medium)]
-                                set_active: model.width == Width::Medium,
-                                connect_toggled[sender] => move |b| if b.is_active() {
-                                    sender.input(AppMsg::SetWidth(Width::Medium));
-                                } @h_medium,
-                            },
-                            gtk::ToggleButton {
-                                set_label: "Thick",
-                                set_group: Some(&width_thin),
-                                set_tooltip_text: Some("Thick"),
-                                #[watch]
-                                #[block_signal(h_thick)]
-                                set_active: model.width == Width::Thick,
-                                connect_toggled[sender] => move |b| if b.is_active() {
-                                    sender.input(AppMsg::SetWidth(Width::Thick));
-                                } @h_thick,
+                                set_visible: model.tool != Tool::Area,
+
+                                #[name = "color_red"]
+                                gtk::ToggleButton {
+                                    add_css_class: "swatch",
+                                    add_css_class: "swatch-red",
+                                    set_tooltip_text: Some("Red"),
+                                    #[watch]
+                                    #[block_signal(h_red)]
+                                    set_active: model.color == Color::Red,
+                                    connect_toggled[sender] => move |b| if b.is_active() {
+                                        sender.input(AppMsg::SetColor(Color::Red));
+                                    } @h_red,
+                                },
+                                gtk::ToggleButton {
+                                    add_css_class: "swatch",
+                                    add_css_class: "swatch-yellow",
+                                    set_group: Some(&color_red),
+                                    set_tooltip_text: Some("Yellow"),
+                                    #[watch]
+                                    #[block_signal(h_yellow)]
+                                    set_active: model.color == Color::Yellow,
+                                    connect_toggled[sender] => move |b| if b.is_active() {
+                                        sender.input(AppMsg::SetColor(Color::Yellow));
+                                    } @h_yellow,
+                                },
+                                gtk::ToggleButton {
+                                    add_css_class: "swatch",
+                                    add_css_class: "swatch-green",
+                                    set_group: Some(&color_red),
+                                    set_tooltip_text: Some("Green"),
+                                    #[watch]
+                                    #[block_signal(h_green)]
+                                    set_active: model.color == Color::Green,
+                                    connect_toggled[sender] => move |b| if b.is_active() {
+                                        sender.input(AppMsg::SetColor(Color::Green));
+                                    } @h_green,
+                                },
+                                gtk::ToggleButton {
+                                    add_css_class: "swatch",
+                                    add_css_class: "swatch-blue",
+                                    set_group: Some(&color_red),
+                                    set_tooltip_text: Some("Blue"),
+                                    #[watch]
+                                    #[block_signal(h_blue)]
+                                    set_active: model.color == Color::Blue,
+                                    connect_toggled[sender] => move |b| if b.is_active() {
+                                        sender.input(AppMsg::SetColor(Color::Blue));
+                                    } @h_blue,
+                                },
+                                gtk::ToggleButton {
+                                    add_css_class: "swatch",
+                                    add_css_class: "swatch-black",
+                                    set_group: Some(&color_red),
+                                    set_tooltip_text: Some("Black"),
+                                    #[watch]
+                                    #[block_signal(h_black)]
+                                    set_active: model.color == Color::Black,
+                                    connect_toggled[sender] => move |b| if b.is_active() {
+                                        sender.input(AppMsg::SetColor(Color::Black));
+                                    } @h_black,
+                                },
+                                gtk::ToggleButton {
+                                    add_css_class: "swatch",
+                                    add_css_class: "swatch-white",
+                                    set_group: Some(&color_red),
+                                    set_tooltip_text: Some("White"),
+                                    #[watch]
+                                    #[block_signal(h_white)]
+                                    set_active: model.color == Color::White,
+                                    connect_toggled[sender] => move |b| if b.is_active() {
+                                        sender.input(AppMsg::SetColor(Color::White));
+                                    } @h_white,
+                                },
+
+                                gtk::Separator {},
+
+                                #[name = "width_thin"]
+                                gtk::ToggleButton {
+                                    set_label: "Thin",
+                                    set_tooltip_text: Some("Thin"),
+                                    #[watch]
+                                    #[block_signal(h_thin)]
+                                    set_active: model.width == Width::Thin,
+                                    connect_toggled[sender] => move |b| if b.is_active() {
+                                        sender.input(AppMsg::SetWidth(Width::Thin));
+                                    } @h_thin,
+                                },
+                                gtk::ToggleButton {
+                                    set_label: "Medium",
+                                    set_group: Some(&width_thin),
+                                    set_tooltip_text: Some("Medium"),
+                                    #[watch]
+                                    #[block_signal(h_medium)]
+                                    set_active: model.width == Width::Medium,
+                                    connect_toggled[sender] => move |b| if b.is_active() {
+                                        sender.input(AppMsg::SetWidth(Width::Medium));
+                                    } @h_medium,
+                                },
+                                gtk::ToggleButton {
+                                    set_label: "Thick",
+                                    set_group: Some(&width_thin),
+                                    set_tooltip_text: Some("Thick"),
+                                    #[watch]
+                                    #[block_signal(h_thick)]
+                                    set_active: model.width == Width::Thick,
+                                    connect_toggled[sender] => move |b| if b.is_active() {
+                                        sender.input(AppMsg::SetWidth(Width::Thick));
+                                    } @h_thick,
+                                },
                             },
                         },
 
@@ -776,6 +815,10 @@ impl SimpleComponent for AppModel {
                 }
             }
         });
+        // Capture phase: Enter must crop even while a toolbar button has
+        // focus (it keeps it after a click). Keys for an open text editor or
+        // a dialog are let through by `key_message`.
+        keys.set_propagation_phase(gtk::PropagationPhase::Capture);
         root.add_controller(keys);
 
         // Every close goes through `CloseRequested`, which asks about unsaved
@@ -825,6 +868,7 @@ impl SimpleComponent for AppModel {
             can_undo: false,
             can_redo: false,
             has_image: false,
+            can_crop: false,
             dirty: false,
         };
         model.sync();
@@ -930,6 +974,16 @@ impl SimpleComponent for AppModel {
             }
             AppMsg::Rotate(turn) if !self.busy => self.request_rotate(turn, &sender),
             AppMsg::Rotate(_) => {}
+            AppMsg::Crop if !self.busy => {
+                self.commit_text_if_open();
+                let mut st = self.state.borrow_mut();
+                let st = &mut *st;
+                st.editor.crop(&st.measure);
+            }
+            AppMsg::ClearArea if !self.busy => {
+                self.state.borrow_mut().editor.clear_area();
+            }
+            AppMsg::Crop | AppMsg::ClearArea => {}
             AppMsg::RotateConfirmed(turn, choice) => {
                 self.busy = false;
                 match choice {
@@ -1021,6 +1075,24 @@ mod tests {
             assert!(key_message(k, m, true, false).is_none(), "{k:?} must reach the text editor");
         }
         assert!(matches!(key_message(gdk::Key::c, ctrl, false, false), Some(AppMsg::Copy)));
+    }
+
+    #[test]
+    fn area_keys() {
+        assert_eq!(tool_of(gdk::Key::c, M::empty()), Some(Tool::Area));
+        assert_eq!(tool_of(gdk::Key::C, M::SHIFT_MASK), Some(Tool::Area));
+        assert!(matches!(shortcut(gdk::Key::Return, M::empty()), Some(AppMsg::Crop)));
+        assert!(matches!(shortcut(gdk::Key::KP_Enter, M::empty()), Some(AppMsg::Crop)));
+        assert!(matches!(shortcut(gdk::Key::Escape, M::empty()), Some(AppMsg::ClearArea)));
+        assert!(matches!(shortcut(gdk::Key::c, M::CONTROL_MASK), Some(AppMsg::Copy)));
+    }
+
+    #[test]
+    fn enter_and_escape_go_to_open_text_editor() {
+        assert!(key_message(gdk::Key::Return, M::empty(), true, false).is_none());
+        assert!(key_message(gdk::Key::KP_Enter, M::empty(), true, false).is_none());
+        assert!(key_message(gdk::Key::Escape, M::empty(), true, false).is_none());
+        assert!(key_message(gdk::Key::Return, M::empty(), false, true).is_none());
     }
 
     #[test]

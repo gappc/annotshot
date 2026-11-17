@@ -9,7 +9,7 @@ use kurbo::{Point, Size};
 
 use crate::editor::{Editor, Hover, PressOutcome, Tool};
 use crate::geometry::Handle;
-use crate::model::{Item, ItemId};
+use crate::model::{Color, Item, ItemId, Shape};
 use crate::render::{PangoMeasure, PixelCache, draw_items, draw_selection};
 use crate::text_edit::TextEditor;
 use crate::view::{ViewTransform, inside_image};
@@ -84,7 +84,19 @@ pub fn draw(st: &CanvasState, cr: &cairo::Context, width: i32, height: i32) {
         None => &ed.items,
     };
     draw_items(cr, items, st.editing, img, Some(&st.pixels), &st.measure);
+    if let Some(a) = ed.area() {
+        // Dim everything but the area: image rectangle minus the area.
+        cr.rectangle(0.0, 0.0, img.width() as f64, img.height() as f64);
+        cr.rectangle(a.x0, a.y0, a.width(), a.height());
+        cr.set_fill_rule(cairo::FillRule::EvenOdd);
+        cr.set_source_rgba(0.0, 0.0, 0.0, 0.45);
+        let _ = cr.fill();
+    }
     let _ = cr.restore();
+
+    if let Some(a) = ed.area() {
+        draw_selection(cr, &Shape::Redact { rect: a, color: Color::Black }, v.scale, &st.measure);
+    }
 
     if let Some(item) = ed
         .selected
@@ -353,5 +365,28 @@ mod tests {
         assert_eq!(pixel(&mut out, 100, 20), (128, 128, 128)); // letterbox
         assert_eq!(pixel(&mut out, 10, 60), (255, 255, 255)); // image
         assert_eq!(pixel(&mut out, 100, 100), (0, 0, 0)); // redaction at image (200,100)
+    }
+
+    #[test]
+    fn area_dims_the_outside_only() {
+        let img = cairo::ImageSurface::create(cairo::Format::ARgb32, 200, 200).unwrap();
+        {
+            let cr = cairo::Context::new(&img).unwrap();
+            cr.set_source_rgb(1.0, 1.0, 1.0);
+            cr.paint().unwrap();
+        }
+        let mut st = CanvasState::new();
+        st.editor.set_image(Some(img));
+        st.editor.set_tool(Tool::Area);
+        st.editor.press(Point::new(100., 0.), 1.0, &st.measure);
+        st.editor.release(Point::new(200., 200.));
+        let mut out = cairo::ImageSurface::create(cairo::Format::ARgb32, 200, 200).unwrap();
+        {
+            let cr = cairo::Context::new(&out).unwrap();
+            draw(&st, &cr, 200, 200);
+        }
+        let (r, _, _) = pixel(&mut out, 50, 100);
+        assert!(r < 200, "outside the area is dimmed, got {r}");
+        assert_eq!(pixel(&mut out, 150, 100), (255, 255, 255)); // inside stays as is
     }
 }

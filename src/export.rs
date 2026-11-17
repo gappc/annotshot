@@ -82,7 +82,6 @@ pub fn rotate(src: &ImageSurface, turn: Turn) -> ImageSurface {
 }
 
 /// New surface holding the pixels of `area` (whole-pixel edges inside `src`), unchanged.
-#[cfg_attr(not(test), allow(dead_code))] // used by the window from the next commit on
 pub fn crop(src: &ImageSurface, area: Rect) -> ImageSurface {
     let out = ImageSurface::create(Format::ARgb32, area.width() as i32, area.height() as i32)
         .expect("create cropped surface");
