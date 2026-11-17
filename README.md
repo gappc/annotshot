@@ -87,6 +87,7 @@ To install elsewhere, set `PREFIX`, e.g. `PREFIX=/usr/local ./install.sh` (defau
 
 - The last drawn or clicked item stays selected. With any tool except Text, drag its corners, its sides (boxes and redactions) or an arrow's ends to resize it. The mouse cursor changes where that's possible. With Select, drag a selected box's inside to move it. A selected marker moves by dragging its inside, with any tool except Text.
 - The file name's extension decides the format when saving: `.png` → PNG, `.jpg`/`.jpeg` → JPEG, no extension → `.jpg` is added. Choosing the PNG filter in the save dialog is not enough; change the name to end in `.png`.
+- **Text** size follows the line width: Thin 12 px, Medium 16 px, Thick 28 px. A width click resizes the selected label, also while typing.
 - **Markers** count 1, 2, 3 … in the order you place them. Deleting one renumbers the later ones. The line width sets their size.
 - **Highlights** sit under all other annotations and keep dark text readable. The Highlight tool starts in yellow and remembers its own color; the other tools keep theirs.
 - **Pixelate** sets its block size from the line width and, like highlights, sits under all other annotations.

@@ -122,8 +122,8 @@ the clipboard. Annotshot never captures anything itself.
 
 - **Text labels (chosen by the user):** "boxed" style, as in Greenshot — bold
   text in the current color, on a white box with a border in the current
-  color. Font size: a sensible default for screenshots; adjustable font size is
-  not required in the first version.
+  color. Font size: 16 px in the first version; adjustable since 2026-11-17
+  (see "Text size" in the implementation notes).
 - Boxes and arrows: stroked in the current color with the current width.
 - Colors: a fixed palette of about five — red (default), yellow, green, blue,
   black.
@@ -262,7 +262,7 @@ Wayland desktop (clipboard after closing, save dialog, 125 % scaling).
   Delete act on the text. The Copy/Save buttons and Ctrl+S / Ctrl+Shift+S
   finish the label first, then act.
 - **Selection sets the style:** selecting an item makes its color (and width,
-  for boxes and arrows) the current style, so the tool column always shows
+  for boxes, arrows, markers, pixelations and labels) the current style, so the tool column always shows
   what the next shape gets.
 - **Drawing only starts on the image:** presses in the grey area around the
   image are ignored by drawing tools (except to grab a selected item's handle
@@ -283,6 +283,13 @@ Wayland desktop (clipboard after closing, save dialog, 125 % scaling).
   pixelation redraws in about 3 ms instead of 9 ms (release build; one-off
   build 4–7 ms). Export computes directly. Timing probe:
   `cargo test --release -- --ignored --nocapture pixelate_4k`.
+- **Text size** (2026-11-17, `specs/2026-11-17-text-size-design.md`): the
+  width sets a label's font size (Thin 12, Medium 16, Thick 28 px) and its
+  padding (`font_px * 6/16`); the border stays 2 px. GtkTextView keeps its old
+  line heights after a CSS font change, so after a size change the open editor
+  sets its text again once the new style has been applied (tick callback, then
+  idle; `text_edit::relayout_text`); without that, a smaller font left the box
+  too tall until the next keystroke.
 
 ### Release and packaging (0.1.0, 2026-10-26)
 

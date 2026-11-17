@@ -806,14 +806,15 @@ impl SimpleComponent for AppModel {
                 // the open editor follows the new color either way.
                 self.state.borrow_mut().editor.set_color(color);
                 if self.text.is_open() {
-                    self.text.set_color(color);
+                    self.text.set_style(self.state.borrow().editor.style);
                 }
             }
             AppMsg::SetWidth(width) => {
+                // An edited existing label is selected, so this resizes it;
+                // the open editor follows the new size either way.
                 self.state.borrow_mut().editor.set_width(width);
                 if self.text.is_open() {
-                    // Labels have no width; just keep typing.
-                    self.text.widget().grab_focus();
+                    self.text.set_style(self.state.borrow().editor.style);
                 }
             }
             AppMsg::Undo => {

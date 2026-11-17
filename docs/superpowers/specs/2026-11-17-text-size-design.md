@@ -2,7 +2,7 @@
 
 Date: 2026-11-17
 Backlog: task 2 (`docs/superpowers/backlog.md`)
-Status: approved 2026-11-17, not yet built
+Status: implemented 2026-11-17
 
 ## Why
 

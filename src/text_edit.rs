@@ -10,11 +10,7 @@ use kurbo::Point;
 
 use crate::canvas::SharedCanvas;
 use crate::editor::Editor;
-use crate::model::{Color, ItemId, TextMeasure, TEXT_BORDER};
-
-// Temporary: the editor still assumes Medium; Task 3 makes it follow the label.
-const TEXT_FONT_PX: f64 = 16.0;
-const TEXT_PADDING: f64 = 6.0;
+use crate::model::{Color, ItemId, Style, TextMeasure, Width, TEXT_BORDER};
 use crate::view::ViewTransform;
 
 const CSS_CLASS: &str = "annotshot-text-editor";
@@ -38,7 +34,7 @@ pub fn apply_commit(editor: &mut Editor, target: Target, text: &str) {
 }
 
 /// Widget-space geometry of the editor box for a label at `origin_widget`
-/// (the label's top-left corner) drawn at view `scale`.
+/// (the label's top-left corner) drawn at view `scale`, for a label of `width`.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Placement {
     /// Overlay margins of the box's outer (border) edge.
@@ -52,24 +48,27 @@ pub struct Placement {
 }
 
 /// The label border is drawn inside its padding, so the outer box edge is the
-/// label origin and the text starts `TEXT_PADDING` further in, as in `render`.
-pub fn placement(origin_widget: Point, scale: f64) -> Placement {
+/// label origin and the text starts `width.text_padding()` further in, as in
+/// `render` (to the nearest widget px: TextView margins are whole pixels).
+pub fn placement(origin_widget: Point, scale: f64, width: Width) -> Placement {
     Placement {
         margin_start: origin_widget.x.round().max(0.0) as i32,
         margin_top: origin_widget.y.round().max(0.0) as i32,
         border: TEXT_BORDER * scale,
-        inner: ((TEXT_PADDING - TEXT_BORDER) * scale).round() as i32,
-        font_px: TEXT_FONT_PX * scale,
+        inner: ((width.text_padding() - TEXT_BORDER) * scale).round() as i32,
+        font_px: width.font_px() * scale,
     }
 }
 
 /// Widget size of the editor box for laid-out text of `text` image px at view
-/// `scale`: the same box the committed label gets (text + padding). GtkTextView
+/// `scale` for a label of `width`: the same box the committed label gets
+/// (text + padding). GtkTextView
 /// doesn't request a width for its content outside a scrolled window, so the
 /// editor is sized explicitly. Empty text keeps room for the caret.
-pub fn editor_size(text: kurbo::Size, scale: f64) -> (i32, i32) {
-    let w = text.width.max(TEXT_FONT_PX / 2.0) + 2.0 * TEXT_PADDING;
-    let h = text.height + 2.0 * TEXT_PADDING;
+pub fn editor_size(text: kurbo::Size, scale: f64, width: Width) -> (i32, i32) {
+    let pad = width.text_padding();
+    let w = text.width.max(width.font_px() / 2.0) + 2.0 * pad;
+    let h = text.height + 2.0 * pad;
     ((w * scale).ceil() as i32, (h * scale).ceil() as i32)
 }
 
@@ -80,9 +79,10 @@ fn hex(color: Color) -> String {
 }
 
 /// Stylesheet that makes the TextView look like a label: Sans Bold in the item
-/// color on its label box, with the label border (see `Color::label_box`).
-pub fn editor_css(scale: f64, color: Color) -> String {
-    let p = placement(Point::ZERO, scale);
+/// color and size on its label box, with the label border (see `Color::label_box`).
+pub fn editor_css(scale: f64, style: Style) -> String {
+    let color = style.color;
+    let p = placement(Point::ZERO, scale, style.width);
     let c = hex(color);
     let bg = hex(color.label_box());
     let border = hex(color.label_border());
@@ -96,12 +96,34 @@ pub fn editor_css(scale: f64, color: Color) -> String {
     )
 }
 
+/// Size `view` to its current text, measured like the committed label.
+fn fit_size(view: &gtk::TextView, state: &SharedCanvas, scale: f64, width: Width) {
+    let buffer = view.buffer();
+    let text = buffer.text(&buffer.start_iter(), &buffer.end_iter(), false);
+    let size = state.borrow().measure.text_size(&text, width.font_px());
+    let (w, h) = editor_size(size, scale, width);
+    view.set_size_request(w, h);
+}
+
+/// Set the same text again, keeping the cursor, without an undo step.
+fn relayout_text(view: &gtk::TextView) {
+    let buffer = view.buffer();
+    let cursor = buffer.cursor_position();
+    let text = buffer.text(&buffer.start_iter(), &buffer.end_iter(), false);
+    buffer.begin_irreversible_action();
+    buffer.set_text(&text);
+    buffer.end_irreversible_action();
+    buffer.place_cursor(&buffer.iter_at_offset(cursor));
+}
+
 pub struct TextEditor {
     view: gtk::TextView,
     css: gtk::CssProvider,
     state: SharedCanvas,
     target: Cell<Option<Target>>,
     scale: Rc<Cell<f64>>,
+    /// Width (font size) of the label being edited.
+    width: Rc<Cell<Width>>,
 }
 
 impl TextEditor {
@@ -118,7 +140,7 @@ impl TextEditor {
             .build();
         let css = gtk::CssProvider::new();
         // Real values are loaded on open; loading now surfaces CSS errors at startup.
-        css.load_from_string(&editor_css(1.0, Color::default()));
+        css.load_from_string(&editor_css(1.0, Style::default()));
         if let Some(display) = gdk::Display::default() {
             gtk::style_context_add_provider_for_display(
                 &display,
@@ -137,17 +159,16 @@ impl TextEditor {
         });
         view.add_controller(keys);
         let scale = Rc::new(Cell::new(1.0));
+        let width = Rc::new(Cell::new(Width::default()));
         // Grow/shrink the box with its text, measured like the committed label.
         {
             let state = state.clone();
             let scale = scale.clone();
+            let width = width.clone();
             let view_weak = view.downgrade();
-            view.buffer().connect_changed(move |buffer| {
+            view.buffer().connect_changed(move |_| {
                 let Some(view) = view_weak.upgrade() else { return };
-                let text = buffer.text(&buffer.start_iter(), &buffer.end_iter(), false);
-                let size = state.borrow().measure.text_size(&text, TEXT_FONT_PX);
-                let (w, h) = editor_size(size, scale.get());
-                view.set_size_request(w, h);
+                fit_size(&view, &state, scale.get(), width.get());
             });
         }
         Self {
@@ -156,6 +177,7 @@ impl TextEditor {
             state,
             target: Cell::new(None),
             scale,
+            width,
         }
     }
 
@@ -169,16 +191,12 @@ impl TextEditor {
     }
 
     /// Show the editor with its box's top-left at `origin_widget`, focused.
-    pub fn open(&self, origin_widget: Point, scale: f64, color: Color, initial: &str) {
-        let p = placement(origin_widget, scale);
+    pub fn open(&self, origin_widget: Point, scale: f64, style: Style, initial: &str) {
+        let p = placement(origin_widget, scale, style.width);
         self.scale.set(scale);
-        self.restyle(color);
+        self.restyle(style);
         self.view.set_margin_start(p.margin_start);
         self.view.set_margin_top(p.margin_top);
-        self.view.set_left_margin(p.inner);
-        self.view.set_right_margin(p.inner);
-        self.view.set_top_margin(p.inner);
-        self.view.set_bottom_margin(p.inner);
         let buffer = self.view.buffer();
         buffer.set_text(initial);
         buffer.place_cursor(&buffer.end_iter());
@@ -201,31 +219,53 @@ impl TextEditor {
         text
     }
 
-    fn restyle(&self, color: Color) {
+    /// Apply color and size: stylesheet, inner margins and box size.
+    fn restyle(&self, style: Style) {
+        self.width.set(style.width);
         self.css
-            .load_from_string(&editor_css(self.scale.get(), color));
+            .load_from_string(&editor_css(self.scale.get(), style));
+        let inner = placement(Point::ZERO, self.scale.get(), style.width).inner;
+        self.view.set_left_margin(inner);
+        self.view.set_right_margin(inner);
+        self.view.set_top_margin(inner);
+        self.view.set_bottom_margin(inner);
+        fit_size(&self.view, &self.state, self.scale.get(), style.width);
+        // GtkTextView keeps its old line heights after a CSS font change, so a
+        // smaller font would leave the box too tall. The new style is applied
+        // in the next frame's layout phase; after that frame (tick callback,
+        // then idle), setting the same text again relays the lines and the
+        // `changed` handler resizes the box.
+        self.view.add_tick_callback(|view, _| {
+            let view = view.downgrade();
+            glib::idle_add_local_once(move || {
+                if let Some(view) = view.upgrade() {
+                    relayout_text(&view);
+                }
+            });
+            glib::ControlFlow::Break
+        });
     }
 
-    /// Restyle the open editor after a color swatch click and give it back the
-    /// focus the swatch button took.
-    pub fn set_color(&self, color: Color) {
-        self.restyle(color);
+    /// Restyle the open editor after a color swatch or width button click and
+    /// give it back the focus the button took.
+    pub fn set_style(&self, style: Style) {
+        self.restyle(style);
         self.view.grab_focus();
     }
 
     /// Open an empty editor for a new label at image point `origin`.
     pub fn start_new(&self, origin: Point, view: ViewTransform) {
-        let color = {
+        let style = {
             let mut st = self.state.borrow_mut();
-            // A new label starts unselected so color clicks while typing don't
-            // recolor some other item.
+            // A new label starts unselected so color and width clicks while
+            // typing don't change some other item.
             st.editor.selected = None;
             st.editing = None;
             st.text_open = true;
-            st.editor.style.color
+            st.editor.style
         };
         self.target.set(Some(Target::New(origin)));
-        self.open(view.to_widget(origin), view.scale, color, "");
+        self.open(view.to_widget(origin), view.scale, style, "");
     }
 
     /// Open the editor on existing label `id`, hiding the label meanwhile.
@@ -246,7 +286,7 @@ impl TextEditor {
             return;
         };
         self.target.set(Some(Target::Existing(id)));
-        self.open(view.to_widget(origin), view.scale, style.color, &text);
+        self.open(view.to_widget(origin), view.scale, style, &text);
     }
 
     /// Commit the open editor into the editor model. Returns false if nothing was open.
@@ -266,48 +306,73 @@ impl TextEditor {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::model::Shape;
+    use crate::model::{Shape, Style, Width};
+
+    const M_PAD: f64 = 6.0; // Width::Medium.text_padding()
+    const M_FONT: f64 = 16.0;
 
     #[test]
     fn placement_scales_with_view() {
-        let p = placement(Point::new(100.4, 50.6), 1.0);
+        let p = placement(Point::new(100.4, 50.6), 1.0, Width::Medium);
         assert_eq!((p.margin_start, p.margin_top), (100, 51));
         assert_eq!(p.border, TEXT_BORDER);
-        assert_eq!(p.inner, (TEXT_PADDING - TEXT_BORDER) as i32);
-        assert_eq!(p.font_px, TEXT_FONT_PX);
+        assert_eq!(p.inner, (M_PAD - TEXT_BORDER) as i32);
+        assert_eq!(p.font_px, M_FONT);
 
-        let half = placement(Point::new(10., 10.), 0.5);
+        let half = placement(Point::new(10., 10.), 0.5, Width::Medium);
         assert_eq!(half.border, 1.0);
         assert_eq!(half.inner, 2);
         assert_eq!(half.font_px, 8.0);
         // Border + inner margin = padding: the text starts where `render` draws it.
-        assert_eq!(half.border + half.inner as f64, TEXT_PADDING * 0.5);
+        assert_eq!(half.border + half.inner as f64, M_PAD * 0.5);
     }
 
     #[test]
     fn editor_size_matches_label_box() {
         // Text 50×19 image px → label box (50+12)×(19+12), at scale 1 and 0.5.
-        assert_eq!(editor_size(kurbo::Size::new(50., 19.), 1.0), (62, 31));
-        assert_eq!(editor_size(kurbo::Size::new(50., 19.), 0.5), (31, 16));
+        assert_eq!(editor_size(kurbo::Size::new(50., 19.), 1.0, Width::Medium), (62, 31));
+        assert_eq!(editor_size(kurbo::Size::new(50., 19.), 0.5, Width::Medium), (31, 16));
         // Empty text still leaves room for the caret.
-        let (w, _) = editor_size(kurbo::Size::new(0., 19.), 1.0);
-        assert!(w as f64 >= 2.0 * TEXT_PADDING + TEXT_FONT_PX / 2.0);
+        let (w, _) = editor_size(kurbo::Size::new(0., 19.), 1.0, Width::Medium);
+        assert!(w as f64 >= 2.0 * M_PAD + M_FONT / 2.0);
+    }
+
+    #[test]
+    fn placement_follows_width() {
+        let p = placement(Point::new(10., 10.), 1.0, Width::Thick);
+        assert_eq!(p.font_px, 28.0);
+        assert!((p.border + p.inner as f64 - Width::Thick.text_padding()).abs() <= 0.5, "{p:?}");
+        let half = placement(Point::new(10., 10.), 0.5, Width::Thick);
+        assert_eq!(half.font_px, 14.0);
+        assert!((half.border + half.inner as f64 - Width::Thick.text_padding() * 0.5).abs() <= 0.5, "{half:?}");
+    }
+
+    #[test]
+    fn editor_size_follows_width() {
+        // Text 50×19 at Thick: padding 10.5 on each side → 71×40.
+        assert_eq!(editor_size(kurbo::Size::new(50., 19.), 1.0, Width::Thick), (71, 40));
+    }
+
+    #[test]
+    fn css_uses_width_font_size() {
+        let css = editor_css(1.0, Style { color: Color::Blue, width: Width::Thin });
+        assert!(css.contains("font-size: 12.000px"), "{css}");
     }
 
     #[test]
     fn placement_never_negative() {
-        let p = placement(Point::new(-3., -0.2), 1.0);
+        let p = placement(Point::new(-3., -0.2), 1.0, Width::Medium);
         assert_eq!((p.margin_start, p.margin_top), (0, 0));
     }
 
     #[test]
     fn css_uses_color_and_scaled_font() {
-        let css = editor_css(2.0, Color::Blue);
+        let css = editor_css(2.0, Style { color: Color::Blue, width: Width::Medium });
         assert!(css.contains("#3584e4"));
         assert!(css.contains("font-size: 32.000px"));
         assert!(css.contains("border: 4.000px solid #3584e4"));
         assert!(css.contains("font-weight: bold"));
-        assert!(editor_css(1.0, Color::Black).contains("color: #000000"));
+        assert!(editor_css(1.0, Style { color: Color::Black, width: Width::Medium }).contains("color: #000000"));
         // libadwaita ignores `color` on the inner `text` node; it must be on the
         // textview node itself (first rule).
         let first_rule = css.lines().next().unwrap();
@@ -316,7 +381,7 @@ mod tests {
 
     #[test]
     fn css_white_text_on_black_box() {
-        let css = editor_css(1.0, Color::White);
+        let css = editor_css(1.0, Style { color: Color::White, width: Width::Medium });
         assert!(css.contains("border: 2.000px solid #000000"), "{css}");
         assert!(css.contains("background-color: #000000"), "{css}");
         assert!(css.contains("; color: #ffffff;"), "{css}");
