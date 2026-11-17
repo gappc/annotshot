@@ -105,15 +105,18 @@ fn fit_size(view: &gtk::TextView, state: &SharedCanvas, scale: f64, width: Width
     view.set_size_request(w, h);
 }
 
-/// Set the same text again, keeping the cursor, without an undo step.
+/// Set the same text again, keeping the cursor and selection, without an
+/// undo step.
 fn relayout_text(view: &gtk::TextView) {
     let buffer = view.buffer();
-    let cursor = buffer.cursor_position();
+    let offset = |mark: &gtk::TextMark| buffer.iter_at_mark(mark).offset();
+    let insert = offset(&buffer.get_insert());
+    let bound = offset(&buffer.selection_bound());
     let text = buffer.text(&buffer.start_iter(), &buffer.end_iter(), false);
     buffer.begin_irreversible_action();
     buffer.set_text(&text);
     buffer.end_irreversible_action();
-    buffer.place_cursor(&buffer.iter_at_offset(cursor));
+    buffer.select_range(&buffer.iter_at_offset(insert), &buffer.iter_at_offset(bound));
 }
 
 pub struct TextEditor {
@@ -221,7 +224,7 @@ impl TextEditor {
 
     /// Apply color and size: stylesheet, inner margins and box size.
     fn restyle(&self, style: Style) {
-        self.width.set(style.width);
+        let width_changed = self.width.replace(style.width) != style.width;
         self.css
             .load_from_string(&editor_css(self.scale.get(), style));
         let inner = placement(Point::ZERO, self.scale.get(), style.width).inner;
@@ -231,10 +234,14 @@ impl TextEditor {
         self.view.set_bottom_margin(inner);
         fit_size(&self.view, &self.state, self.scale.get(), style.width);
         // GtkTextView keeps its old line heights after a CSS font change, so a
-        // smaller font would leave the box too tall. The new style is applied
+        // smaller font would leave the box too tall. Only a size change needs
+        // this: it also clears the field's own undo history. The new style is applied
         // in the next frame's layout phase; after that frame (tick callback,
         // then idle), setting the same text again relays the lines and the
         // `changed` handler resizes the box.
+        if !width_changed {
+            return;
+        }
         self.view.add_tick_callback(|view, _| {
             let view = view.downgrade();
             glib::idle_add_local_once(move || {
