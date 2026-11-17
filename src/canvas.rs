@@ -19,7 +19,6 @@ const HIT_TOLERANCE: f64 = 6.0;
 
 pub struct CanvasState {
     pub editor: Editor,
-    pub image: Option<cairo::ImageSurface>,
     pub measure: PangoMeasure,
     /// Block colors of the screenshot for fast pixelation redraws.
     pub pixels: PixelCache,
@@ -35,7 +34,6 @@ impl CanvasState {
     pub fn new() -> Self {
         Self {
             editor: Editor::new(),
-            image: None,
             measure: PangoMeasure::new(),
             pixels: PixelCache::default(),
             editing: None,
@@ -45,7 +43,7 @@ impl CanvasState {
 
     /// View transform for a widget of the given size, or `None` without an image.
     pub fn view(&self, widget_w: f64, widget_h: f64) -> Option<ViewTransform> {
-        let img = self.image.as_ref()?;
+        let img = self.editor.image()?;
         Some(ViewTransform::fit(
             Size::new(img.width() as f64, img.height() as f64),
             Size::new(widget_w, widget_h),
@@ -55,7 +53,7 @@ impl CanvasState {
 
 pub fn draw(st: &CanvasState, cr: &cairo::Context, width: i32, height: i32) {
     // Without an image the window background stays visible behind the paste hint.
-    let Some((img, v)) = st.image.as_ref().zip(st.view(width as f64, height as f64)) else {
+    let Some((img, v)) = st.editor.image().zip(st.view(width as f64, height as f64)) else {
         return;
     };
     cr.set_source_rgb(0.5, 0.5, 0.5);
@@ -169,7 +167,7 @@ pub fn attach(
                     // the letterbox would be clipped away yet still exist.
                     // (A drag may still end outside.) Select keeps working
                     // there so handles on the edge stay reachable.
-                    let img = st.image.as_ref()?;
+                    let img = st.editor.image()?;
                     let size = Size::new(img.width() as f64, img.height() as f64);
                     let tol = HIT_TOLERANCE / view.scale;
                     let grabs = matches!(st.editor.hover(p, tol, &st.measure), Hover::Handle(_));
@@ -238,7 +236,7 @@ pub fn attach(
                 return;
             }
             let st = state.borrow();
-            let name = match (st.view(area.width() as f64, area.height() as f64), st.image.as_ref()) {
+            let name = match (st.view(area.width() as f64, area.height() as f64), st.editor.image()) {
                 (Some(view), Some(img)) => {
                     let p = view.to_image(Point::new(x, y));
                     let size = Size::new(img.width() as f64, img.height() as f64);
@@ -337,7 +335,7 @@ mod tests {
             cr.paint().unwrap();
         }
         let mut st = CanvasState::new();
-        st.image = Some(img);
+        st.editor.set_image(Some(img));
         st.editor.tool = Tool::Redact;
         st.editor.set_color(Color::Black);
         st.editor.press(Point::new(100., 50.), 1.0, &st.measure);

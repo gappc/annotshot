@@ -1,6 +1,7 @@
 use crate::geometry::{drag_handle, grab_at, hit_test, translate, Handle};
 use crate::history::History;
 use crate::model::{Color, Item, ItemId, Shape, Style, TextMeasure, Width, MIN_SIZE};
+use gtk::cairo::ImageSurface;
 use kurbo::{Point, Rect, Vec2};
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -41,6 +42,8 @@ enum Drag {
 }
 
 pub struct Editor {
+    /// The screenshot the items are drawn on; `None` before the first paste.
+    image: Option<ImageSurface>,
     pub items: Vec<Item>,
     pub selected: Option<ItemId>,
     pub tool: Tool,
@@ -64,6 +67,7 @@ impl Default for Editor {
 impl Editor {
     pub fn new() -> Self {
         Editor {
+            image: None,
             items: Vec::new(),
             selected: None,
             tool: Tool::default(),
@@ -75,6 +79,15 @@ impl Editor {
             highlight_color: Color::Yellow,
             other_color: Color::default(),
         }
+    }
+
+    pub fn image(&self) -> Option<&ImageSurface> {
+        self.image.as_ref()
+    }
+
+    /// Replace the base image only; items and history are left as they are.
+    pub fn set_image(&mut self, image: Option<ImageSurface>) {
+        self.image = image;
     }
 
     pub fn reset(&mut self) {

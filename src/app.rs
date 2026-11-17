@@ -156,7 +156,7 @@ impl AppModel {
         self.width = ed.style.width;
         self.can_undo = ed.can_undo();
         self.can_redo = ed.can_redo();
-        self.has_image = st.image.is_some();
+        self.has_image = st.editor.image().is_some();
         self.dirty = ed.is_dirty();
         drop(st);
         self.canvas.queue_draw();
@@ -178,7 +178,7 @@ impl AppModel {
         let mut st = self.state.borrow_mut();
         st.editor.reset();
         st.editing = None;
-        st.image = Some(surface_from_texture(texture));
+        st.editor.set_image(Some(surface_from_texture(texture)));
         drop(st);
         self.file = None;
     }
@@ -186,7 +186,7 @@ impl AppModel {
     /// The image with all annotations at its original pixel size.
     fn flattened(&self) -> Option<gtk::cairo::ImageSurface> {
         let st = self.state.borrow();
-        let img = st.image.as_ref()?;
+        let img = st.editor.image()?;
         Some(export::flatten(img, &st.editor.items, &st.measure))
     }
 
@@ -215,7 +215,7 @@ impl AppModel {
     /// Ask for a file name; the answer arrives as `SaveChosen`.
     fn save_as(&mut self, sender: &ComponentSender<Self>) {
         self.commit_text_if_open();
-        if self.state.borrow().image.is_none() {
+        if self.state.borrow().editor.image().is_none() {
             self.pending = None;
             return;
         }
@@ -296,9 +296,9 @@ impl AppModel {
     fn rotate(&mut self, turn: Turn, merge: bool) {
         let mut st = self.state.borrow_mut();
         let st = &mut *st;
-        let Some(img) = st.image.as_ref() else { return };
+        let Some(img) = st.editor.image() else { return };
         let base = if merge { export::flatten(img, &st.editor.items, &st.measure) } else { img.clone() };
-        st.image = Some(export::rotate(&base, turn));
+        st.editor.set_image(Some(export::rotate(&base, turn)));
         st.editor.clear_for_rotation();
         st.editing = None;
     }
@@ -307,7 +307,7 @@ impl AppModel {
     fn request_rotate(&mut self, turn: Turn, sender: &ComponentSender<Self>) {
         self.commit_text_if_open();
         let st = self.state.borrow();
-        if st.image.is_none() {
+        if st.editor.image().is_none() {
             return;
         }
         let empty = st.editor.items.is_empty();
@@ -331,7 +331,7 @@ impl AppModel {
         let mut st = self.state.borrow_mut();
         st.editor.reset();
         st.editing = None;
-        st.image = None;
+        st.editor.set_image(None);
         drop(st);
         self.file = None;
         self.pending = None;
@@ -847,7 +847,7 @@ impl SimpleComponent for AppModel {
                 self.commit_text_if_open();
                 if self.busy {
                     // A dialog is already deciding about the current image.
-                } else if self.state.borrow().image.is_none() {
+                } else if self.state.borrow().editor.image().is_none() {
                     self.load(&texture);
                 } else {
                     self.ask(Pending::NewImage(texture), &sender);
