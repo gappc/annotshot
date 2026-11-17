@@ -128,7 +128,9 @@ pub fn cursor_for(hover: Hover, tool: Tool, drawable: bool) -> &'static str {
             _ if !drawable => "default",
             Tool::Select => "default",
             Tool::Text => "text",
-            Tool::Rect | Tool::Arrow | Tool::Redact | Tool::Marker | Tool::Highlight | Tool::Pixelate => "crosshair",
+            Tool::Rect | Tool::Arrow | Tool::Redact | Tool::Marker | Tool::Highlight | Tool::Pixelate | Tool::Area => {
+                "crosshair"
+            }
         },
     }
 }
@@ -311,6 +313,7 @@ mod tests {
         assert_eq!(cursor_for(Hover::Nothing, Tool::Marker, true), "crosshair");
         assert_eq!(cursor_for(Hover::Nothing, Tool::Highlight, true), "crosshair");
         assert_eq!(cursor_for(Hover::Nothing, Tool::Pixelate, true), "crosshair");
+        assert_eq!(cursor_for(Hover::Nothing, Tool::Area, true), "crosshair");
         assert_eq!(cursor_for(Hover::Item, Tool::Select, true), "move");
         assert_eq!(cursor_for(Hover::Nothing, Tool::Rect, true), "crosshair");
         assert_eq!(cursor_for(Hover::Nothing, Tool::Rect, false), "default");

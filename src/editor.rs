@@ -15,6 +15,8 @@ pub enum Tool {
     Marker,
     Highlight,
     Pixelate,
+    /// Selects a rectangle of the image to copy or crop to; not an annotation.
+    Area,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -39,6 +41,12 @@ enum Drag {
     Draw { start: Point, shape: Shape },
     Move { id: ItemId, last: Point, before: Vec<Item> },
     Handle { id: ItemId, handle: Handle, before: Vec<Item> },
+    /// A new area dragged open from `start`.
+    AreaNew { start: Point },
+    /// The area `orig` moved by the pointer's offset from `start`.
+    AreaMove { start: Point, orig: Rect },
+    /// A corner or side of the area `orig` dragged.
+    AreaHandle { handle: Handle, orig: Rect },
 }
 
 pub struct Editor {
@@ -52,6 +60,10 @@ pub struct Editor {
     dirty: bool,
     drag: Drag,
     next_id: ItemId,
+    /// The Area tool's rectangle in whole image pixels; only while that tool is active.
+    area: Option<Rect>,
+    /// The tool to return to after a crop.
+    tool_before_area: Tool,
     /// Current color of the Highlight tool while another tool is active.
     highlight_color: Color,
     /// Current color of the other tools while Highlight is active.
@@ -76,6 +88,8 @@ impl Editor {
             dirty: false,
             drag: Drag::None,
             next_id: 1,
+            area: None,
+            tool_before_area: Tool::default(),
             highlight_color: Color::Yellow,
             other_color: Color::default(),
         }
@@ -91,6 +105,7 @@ impl Editor {
     }
 
     pub fn reset(&mut self) {
+        self.area = None;
         self.items.clear();
         self.selected = None;
         self.history.clear();
@@ -101,6 +116,7 @@ impl Editor {
     /// After the image was turned: the annotations and every undo step refer
     /// to the unrotated image, so they all go. The document counts as changed.
     pub fn clear_for_rotation(&mut self) {
+        self.area = None;
         self.items.clear();
         self.selected = None;
         self.history.clear();
@@ -112,6 +128,13 @@ impl Editor {
     /// so entering or leaving it swaps colors; a selection of the other kind
     /// is dropped so the toolbar color always belongs to what it would change.
     pub fn set_tool(&mut self, tool: Tool) {
+        if tool == Tool::Area && self.tool != Tool::Area {
+            self.tool_before_area = self.tool;
+            self.selected = None;
+        }
+        if tool != Tool::Area {
+            self.area = None;
+        }
         let was = self.tool == Tool::Highlight;
         let is = tool == Tool::Highlight;
         self.tool = tool;
@@ -208,7 +231,68 @@ impl Editor {
         hit(false).or_else(|| hit(true))
     }
 
+    #[cfg_attr(not(test), allow(dead_code))] // used by the window from the next commit on
+    pub fn area(&self) -> Option<Rect> {
+        self.area
+    }
+
+    #[cfg_attr(not(test), allow(dead_code))] // used by the window from the next commit on
+    /// Remove the area; true if there was one.
+    pub fn clear_area(&mut self) -> bool {
+        self.area.take().is_some()
+    }
+
+    #[cfg_attr(not(test), allow(dead_code))] // used by the window from the next commit on
+    /// An area exists and is smaller than the image.
+    pub fn can_crop(&self) -> bool {
+        self.area.is_some_and(|a| Some(a) != self.image_rect())
+    }
+
+    fn image_rect(&self) -> Option<Rect> {
+        self.image.as_ref().map(|i| Rect::new(0.0, 0.0, i.width() as f64, i.height() as f64))
+    }
+
+    /// `r` with whole-pixel edges inside the image, or `None` if too small.
+    fn snap_area(&self, r: Rect) -> Option<Rect> {
+        let b = self.image_rect()?;
+        let r = Rect::new(
+            r.x0.round().max(b.x0),
+            r.y0.round().max(b.y0),
+            r.x1.round().min(b.x1),
+            r.y1.round().min(b.y1),
+        );
+        (r.width() >= MIN_SIZE && r.height() >= MIN_SIZE).then_some(r)
+    }
+
+    /// The side or corner of the area under `p` (same reach as an item's).
+    fn grab_area(&self, p: Point, tol: f64) -> Option<Handle> {
+        let rect = self.area?;
+        grab_at(&Shape::Redact { rect, color: Color::Black }, p, tol * 8.0 / 6.0, tol)
+    }
+
+    fn hover_area(&self, p: Point, tol: f64) -> Hover {
+        match (self.grab_area(p, tol), self.area) {
+            (Some(h), _) => Hover::Handle(h),
+            (None, Some(a)) if a.contains(p) => Hover::Item,
+            _ => Hover::Nothing,
+        }
+    }
+
+    fn press_area(&mut self, p: Point, tol: f64) {
+        self.drag = match (self.grab_area(p, tol), self.area) {
+            (Some(handle), Some(orig)) => Drag::AreaHandle { handle, orig },
+            (None, Some(orig)) if orig.contains(p) => Drag::AreaMove { start: p, orig },
+            _ => {
+                self.area = None;
+                Drag::AreaNew { start: p }
+            }
+        };
+    }
+
     pub fn hover(&self, p: Point, tol: f64, m: &dyn TextMeasure) -> Hover {
+        if self.tool == Tool::Area {
+            return self.hover_area(p, tol);
+        }
         if let Some((_, h)) = self.grab_selected(p, tol) {
             return Hover::Handle(h);
         }
@@ -220,6 +304,10 @@ impl Editor {
 
     pub fn press(&mut self, p: Point, tol: f64, m: &dyn TextMeasure) -> PressOutcome {
         self.drag = Drag::None;
+        if self.tool == Tool::Area {
+            self.press_area(p, tol);
+            return PressOutcome::Nothing;
+        }
         if let Some((id, handle)) = self.grab_selected(p, tol) {
             let before = self.items.clone();
             self.drag = match handle {
@@ -259,6 +347,7 @@ impl Editor {
                     None => PressOutcome::StartText(p),
                 };
             }
+            Tool::Area => unreachable!("handled by press_area"),
         }
         PressOutcome::Nothing
     }
@@ -288,6 +377,24 @@ impl Editor {
                     drag_handle(&mut it.shape, handle, p);
                 }
             }
+            Drag::AreaNew { start } => {
+                let r = Rect::from_points(*start, p);
+                self.area = self.snap_area(r);
+            }
+            Drag::AreaMove { start, orig } => {
+                let (start, orig) = (*start, *orig);
+                let Some(b) = self.image_rect() else { return };
+                // Keep the whole area inside the image; it never shrinks.
+                let dx = (p.x - start.x).round().clamp(b.x0 - orig.x0, b.x1 - orig.x1);
+                let dy = (p.y - start.y).round().clamp(b.y0 - orig.y0, b.y1 - orig.y1);
+                self.area = Some(orig + Vec2::new(dx, dy));
+            }
+            Drag::AreaHandle { handle, orig } => {
+                let mut shape = Shape::Redact { rect: *orig, color: Color::Black };
+                drag_handle(&mut shape, *handle, p);
+                let Shape::Redact { rect, .. } = shape else { unreachable!() };
+                self.area = self.snap_area(rect);
+            }
         }
     }
 
@@ -313,6 +420,8 @@ impl Editor {
                     self.commit_from(before);
                 }
             }
+            // The area is not part of the document: no history, not dirty.
+            Drag::AreaNew { .. } | Drag::AreaMove { .. } | Drag::AreaHandle { .. } => {}
         }
     }
 
@@ -520,6 +629,93 @@ mod tests {
 
     fn pt(x: f64, y: f64) -> Point {
         Point::new(x, y)
+    }
+
+    fn editor_with_image(w: i32, h: i32) -> Editor {
+        let mut e = Editor::new();
+        let img = ImageSurface::create(gtk::cairo::Format::ARgb32, w, h).unwrap();
+        {
+            let cr = gtk::cairo::Context::new(&img).unwrap();
+            cr.set_source_rgb(1.0, 1.0, 1.0);
+            cr.paint().unwrap();
+        }
+        e.set_image(Some(img));
+        e
+    }
+
+    /// Switch to the Area tool and drag a new area from `a` to `b`.
+    fn area(e: &mut Editor, a: Point, b: Point) {
+        e.set_tool(Tool::Area);
+        draw(e, a, b);
+    }
+
+    #[test]
+    fn area_is_clamped_and_snapped() {
+        let mut e = editor_with_image(200, 100);
+        area(&mut e, pt(-20.4, 10.6), pt(150.2, 300.));
+        assert_eq!(e.area(), Some(Rect::new(0., 11., 150., 100.)));
+        assert!(e.items.is_empty() && !e.can_undo() && !e.is_dirty());
+    }
+
+    #[test]
+    fn moving_area_stops_at_image_edge() {
+        let mut e = editor_with_image(200, 100);
+        area(&mut e, pt(10., 10.), pt(60., 40.));
+        draw(&mut e, pt(30., 20.), pt(500., 20.)); // inside → move
+        assert_eq!(e.area(), Some(Rect::new(150., 10., 200., 40.)));
+        draw(&mut e, pt(170., 20.), pt(-400., -400.));
+        assert_eq!(e.area(), Some(Rect::new(0., 0., 50., 30.)));
+    }
+
+    #[test]
+    fn area_handle_resizes_and_click_outside_clears() {
+        let mut e = editor_with_image(200, 100);
+        area(&mut e, pt(10., 10.), pt(60., 40.));
+        assert_eq!(e.hover(pt(60., 40.), 6., &M), Hover::Handle(Handle::BottomRight));
+        assert_eq!(e.hover(pt(30., 20.), 6., &M), Hover::Item);
+        assert_eq!(e.hover(pt(150., 80.), 6., &M), Hover::Nothing);
+        draw(&mut e, pt(60., 40.), pt(80., 70.));
+        assert_eq!(e.area(), Some(Rect::new(10., 10., 80., 70.)));
+        draw(&mut e, pt(150., 90.), pt(150., 90.));
+        assert_eq!(e.area(), None);
+        assert!(!e.can_undo() && !e.is_dirty());
+    }
+
+    #[test]
+    fn area_tool_ignores_items_and_leaving_it_clears_area() {
+        let mut e = editor_with_image(200, 100);
+        draw(&mut e, pt(10., 10.), pt(60., 40.));
+        assert!(e.selected.is_some());
+        e.set_tool(Tool::Area);
+        assert_eq!(e.selected, None);
+        draw(&mut e, pt(30., 20.), pt(100., 80.)); // on the box: draws an area
+        assert_eq!(rect_of(&e, 0), Rect::new(10., 10., 60., 40.));
+        assert_eq!(e.area(), Some(Rect::new(30., 20., 100., 80.)));
+        assert!(e.clear_area());
+        assert!(!e.clear_area());
+        area(&mut e, pt(30., 20.), pt(100., 80.));
+        e.set_tool(Tool::Rect);
+        assert_eq!(e.area(), None);
+        // A new image (paste) or a rotation drops the area as well.
+        area(&mut e, pt(30., 20.), pt(100., 80.));
+        e.clear_for_rotation();
+        assert_eq!(e.area(), None);
+        area(&mut e, pt(30., 20.), pt(100., 80.));
+        e.reset();
+        assert_eq!(e.area(), None);
+    }
+
+    #[test]
+    fn can_crop_needs_a_partial_area() {
+        let mut e = editor_with_image(200, 100);
+        e.set_tool(Tool::Area);
+        assert!(!e.can_crop());
+        area(&mut e, pt(10., 10.), pt(60., 40.));
+        assert!(e.can_crop());
+        e.clear_area();
+        area(&mut e, pt(-5., -5.), pt(300., 300.));
+        assert_eq!(e.area(), Some(Rect::new(0., 0., 200., 100.)));
+        assert!(!e.can_crop());
     }
 
     fn draw(e: &mut Editor, a: Point, b: Point) {
