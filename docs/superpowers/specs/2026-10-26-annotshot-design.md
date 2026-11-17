@@ -75,8 +75,9 @@ the clipboard. Annotshot never captures anything itself.
   - centre: title (app name, plus file name once saved; unsaved marker)
   - right: Copy, Save… (suggested-action style)
 - Left: a vertical tool column:
-  Select, Box, Arrow, Text, Marker, Highlight, Pixelate, Redact — then the
-  current color and line width (order changed by the user on 2026-10-26).
+  Select, Box, Arrow, Text, Marker, Highlight, Pixelate, Redact, Area — then the
+  current color and line width (order changed by the user on 2026-10-26; with
+  the Area tool a Crop button replaces color and width).
 - Rest of the window: the image canvas.
 
 ### Start state
@@ -108,6 +109,7 @@ the clipboard. Annotshot never captures anything itself.
 | Marker | N | Click to place a numbered circle (1, 2, 3 …), centered on the click; drag before releasing to position it. *(Added 2026-10-26, see "Numbered markers".)* |
 | Highlight | H | Drag to draw a highlighter-like tint. *(Added 2026-10-26, see "Highlight".)* |
 | Pixelate | P | Drag to turn the screenshot inside into coarse blocks. Visual only, not for sensitive data. *(Added 2026-10-26, see "Pixelate".)* |
+| Area | C | Drag a rectangle; Ctrl+C copies only it, Enter / Crop crops the image to it (undoable), Escape removes it. *(Added 2026-11-17, see "Select area".)* |
 
 - After drawing an item, the current tool stays active so several items can be
   drawn in a row.
@@ -295,6 +297,14 @@ Wayland desktop (clipboard after closing, save dialog, 125 % scaling).
   Existing annotations are first merged into the image (`export::flatten`) or
   deleted, as chosen in a dialog; afterwards there are none, undo starts over
   and the document is dirty. No undo for a rotation.
+- **Select area** (2026-11-17, `specs/2026-11-17-area-crop-design.md`): the
+  base image lives in `Editor` (`image()` / `set_image`). `History<T>` is
+  generic; an editor snapshot may carry a `CropSide` (image, area, which side
+  of the crop), so undo/redo of a crop swaps the image and restores the Area
+  tool with its rectangle. The area is not an item and never in history or
+  exports. Copy uses `export::flatten_area`. The window's key controller runs
+  in the capture phase so Enter crops even while a toolbar button has focus.
+  Rotation still clears the history, crop steps included.
 
 ### Release and packaging (0.1.0, 2026-10-26)
 

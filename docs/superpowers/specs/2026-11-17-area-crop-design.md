@@ -2,7 +2,7 @@
 
 Date: 2026-11-17
 Backlog: task 4 (`docs/superpowers/backlog.md`)
-Status: approved 2026-11-17
+Status: implemented 2026-11-17
 
 ## Why
 
@@ -152,3 +152,17 @@ They asked for both in one feature.
   `tests/gui` Xvfb harness).
 - Unit tests: area clamping/snapping, crop shifts and drops items, crop
   undo/redo restores image size and items, copy-area output size.
+
+## Implementation notes
+
+- Built as designed; the tool buttons carry text labels, so no icon was needed
+  (button `Area`, tooltip "Select area (C)").
+- Headless check (tests/gui): two boxes, Area by button, drag; Ctrl+C put a
+  330×200 PNG (the area) on the clipboard with toast "Copied area"; Enter right
+  after clicking the button cropped (the right box dropped, tool back to Box);
+  Ctrl+Z brought back the full image, both boxes, Area and the rectangle;
+  Ctrl+Y cropped again and the left box stayed selectable; a typed label was
+  committed on switching to Area and shifted with a crop by the Crop button;
+  Escape removed the area.
+- On the dark theme the dimmed outside is close to the grey letterbox; the
+  image edge stays visible, so it was left as designed.

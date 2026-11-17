@@ -9,7 +9,7 @@ to keep the context clean. Status: `offen` → `brainstorming` → `geplant` →
 | 1 | Weiß in der Farbpalette           | erledigt | S     | `model.rs` (Color), `app.rs` (Swatches)    |
 | 2 | Textgröße einstellbar             | erledigt | S–M   | `model.rs` (Shape::Text), `text_edit.rs`, `render.rs`, `app.rs` |
 | 3 | Zoom mit Strg + Mausrad           | zurückgestellt | M     | `view.rs`, `canvas.rs`, `text_edit.rs`     |
-| 4 | Bereich auswählen und weiterverwenden | geplant | M–L | neues Werkzeug, `history.rs`, `export.rs`, `files.rs` |
+| 4 | Bereich auswählen und weiterverwenden | erledigt | M–L | neues Werkzeug, `history.rs`, `export.rs`, `files.rs` |
 | 5 | Bild drehen                       | erledigt | M     | `history.rs`, `render.rs`, `geometry.rs`   |
 
 Empfohlene Reihenfolge: 1 → 2 → 5 → 4 (3 zurückgestellt). Die ersten beiden sind klein und
@@ -111,4 +111,6 @@ Aus einem Vollbild-Screenshot nur einen Teil weiterverwenden.
 Drehen verändern das Grundbild, also muss ein Undo-Schritt künftig auch das
 Bild (oder die Transformation) enthalten. Das ist die eigentliche
 Architekturänderung; sie wird beim ersten der beiden Tasks gebaut.
-(Stand 2026-11-17: Task 5 ist ohne sie ausgekommen, siehe Vorüberlegung bei 4.)
+(Stand 2026-11-17: Task 5 ist ohne sie ausgekommen; Task 4 hat sie gebaut:
+`History<T>` mit Bild im Undo-Schritt eines Zuschnitts. Drehen könnte sie
+nutzen, leert die Undo-Liste aber weiterhin.)
